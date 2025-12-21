@@ -259,3 +259,23 @@ img.stock-icon {
     margin: 0;
     font-family: monospace;
 }
+
+.better-seed-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.9em;
+    background-color: #4a90d9;
+    color: white;
+    border: none;
+    border-radius: 0.3rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.better-seed-btn:hover {
+    background-color: #3a7bc8;
+}
+
+.better-seed-btn:disabled {
+    background-color: #999;
+    cursor: not-allowed;
+}

@@ -1,10 +1,10 @@
-import { rngAdv, rngInt, findSeedDifference } from './util.js'
+import { rngAdv, rngInt, findSeedDifference } from "./util.js";
 
 /* RNG Event Classes */
 class RngEvent {
   constructor() {}
   resultsFromSeed(seed) {
-    return [true, seed];
+    return [true, seed, null];
   }
 }
 
@@ -21,7 +21,7 @@ class DelayEvent extends RngEvent {
       seed = rngAdv(seed);
     }
 
-    return [true, seed];
+    return [true, seed, null];
   }
 }
 
@@ -41,9 +41,9 @@ class IntEvent extends RngEvent {
     seed = rngAdv(seed);
 
     let result = rngInt(seed, this.max);
-    let success = (result >= this.low && result <= this.high);
+    let success = result >= this.low && result <= this.high;
 
-    return [success, seed];
+    return [success, seed, null];
   }
 }
 
@@ -62,13 +62,13 @@ class RangeEvent extends RngEvent {
       const [success, resultSeed] = seedYieldsEvents(seed, this.events);
 
       if (success) {
-        return [success, resultSeed];
+        return [success, resultSeed, { rangeOffset: i, rangeSize: this.range }];
       } else {
         seed = rngAdv(seed);
       }
     }
 
-    return [false, seed]; // I think it's ok to return the advanced seed here?
+    return [false, seed, null]; // I think it's ok to return the advanced seed here?
   }
 }
 
@@ -82,33 +82,98 @@ class OptionEvent extends RngEvent {
 
   resultsFromSeed(seed) {
     for (let i = 0; i < this.eventSequences.length; i++) {
-      let [success, resultSeed] = seedYieldsEvents(seed, this.eventSequences[i]);
+      let [success, resultSeed, metadata] = seedYieldsEvents(
+        seed,
+        this.eventSequences[i]
+      );
 
       if (success) {
-        return [true, resultSeed];
+        return [true, resultSeed, metadata];
       }
     }
 
-    return [false, seed];
+    return [false, seed, null];
   }
 }
 
 const EVENT_SEARCH_MAX_ITERATIONS = 1000000; // 0x100000000 for full range
 
+// Standard deviation of run RNG consumption (measured from trials)
+const RUN_SIGMA = 36;
+
+// Calculate success probability given sword position in range
+// Returns probability as a decimal (e.g., 0.01 = 1%)
+const calculateSuccessRate = (rangeOffset, rangeSize) => {
+  const center = rangeSize / 2;
+  const distanceFromCenter = rangeOffset - center;
+
+  // P(hit) = φ(d/σ) / σ where φ is standard normal PDF
+  // φ(x) = (1/√(2π)) × e^(-x²/2)
+  const x = distanceFromCenter / RUN_SIGMA;
+  const phi = Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+
+  return phi / RUN_SIGMA;
+};
+
+// Search for a seed with sword closer to center than the current best
+const searchForBetterSeed = (
+  events,
+  startSeed,
+  currentBestOffset,
+  rangeSize,
+  maxIterations = 100000
+) => {
+  let seed = startSeed;
+  const center = rangeSize / 2;
+  const currentDistance = Math.abs(currentBestOffset - center);
+
+  for (let i = 0; i < maxIterations; i++) {
+    let trialSeed = seed;
+
+    let [success, resultSeed, metadata] = seedYieldsEvents(trialSeed, events);
+
+    if (success && metadata) {
+      const newDistance = Math.abs(metadata.rangeOffset - center);
+
+      // Only accept if strictly better (closer to center)
+      if (newDistance < currentDistance) {
+        return {
+          startSeed: startSeed,
+          eventSeed: seed,
+          endSeed: resultSeed,
+          interval: findSeedDifference(startSeed, seed),
+          success: true,
+          rangeInfo: metadata,
+          searchedSeeds: i + 1,
+        };
+      }
+    }
+
+    seed = rngAdv(seed);
+  }
+
+  return {
+    success: false,
+    searchedSeeds: maxIterations,
+  };
+};
 
 const seedYieldsEvents = (seed, events) => {
+  let metadata = null;
   for (let i = 0; i < events.length; i++) {
-    let [success, resultSeed] = events[i].resultsFromSeed(seed);
+    let [success, resultSeed, eventMeta] = events[i].resultsFromSeed(seed);
+
+    if (eventMeta) metadata = eventMeta; // Capture range metadata
 
     if (!success) {
-      return [false, resultSeed];
+      return [false, resultSeed, null];
     } else {
       seed = resultSeed;
     }
   }
 
-  return [true, seed];
-}
+  return [true, seed, metadata];
+};
 
 const searchForEvent = (events, startSeed) => {
   let seed = startSeed;
@@ -116,7 +181,7 @@ const searchForEvent = (events, startSeed) => {
   for (let i = 0; i < EVENT_SEARCH_MAX_ITERATIONS; i++) {
     let trialSeed = seed;
 
-    let [success, resultSeed] = seedYieldsEvents(trialSeed, events);
+    let [success, resultSeed, metadata] = seedYieldsEvents(trialSeed, events);
 
     if (success) {
       return {
@@ -124,7 +189,8 @@ const searchForEvent = (events, startSeed) => {
         eventSeed: seed,
         endSeed: resultSeed,
         interval: findSeedDifference(startSeed, seed),
-        success: success
+        success: success,
+        rangeInfo: metadata, // { rangeOffset, rangeSize } or null
       };
     }
 
@@ -132,22 +198,22 @@ const searchForEvent = (events, startSeed) => {
   }
 
   return {
-    success: false
-  }
-}
-
+    success: false,
+    rangeInfo: null,
+  };
+};
 
 const buildCharacterEvents = (characters) => {
   let events = [];
 
-  for (let i = 0; i < characters.length; i++){
+  for (let i = 0; i < characters.length; i++) {
     // Add the character event + delay
     events.push(new IntEvent(25, characters[i], characters[i]));
     events.push(new DelayEvent(1));
   }
 
   return events;
-}
+};
 
 const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
   let events = [];
@@ -157,16 +223,16 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
 
     if (mismatch) {
       switch (spawnCondition) {
-        case 'ground-spawn':
+        case "ground-spawn":
           delay = 12;
           break;
-        case 'aerial-spawn':
+        case "aerial-spawn":
           delay = 43;
           break;
-        case 'luigi':
+        case "luigi":
           delay = 14; // Why you gotta be like this, luigi
           break;
-        case 'seak':
+        case "seak":
           delay = 5;
           break;
         default:
@@ -174,7 +240,7 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
           break;
       }
     }
-    
+
     events.push(new DelayEvent(delay));
   }
 
@@ -183,31 +249,31 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
     const doubleStitchEvents = [
       new IntEvent(128, 1, 127), // turnip pull
       new IntEvent(58, 57, 57),
-      new IntEvent(58, 57, 57)
-    ]
+      new IntEvent(58, 57, 57),
+    ];
 
-    events.push(new OptionEvent(
-      [
+    events.push(
+      new OptionEvent([
         [
           new DelayEvent(2),
           new IntEvent(10, 0, 0), // long delay
           new DelayEvent(122),
-          ...doubleStitchEvents
+          ...doubleStitchEvents,
         ],
         [
           new DelayEvent(2),
           new IntEvent(10, 1, 5), // short delay
           new DelayEvent(119),
-          ...doubleStitchEvents
+          ...doubleStitchEvents,
         ],
         [
           new DelayEvent(2),
           new IntEvent(10, 6, 9), // med delay
           new DelayEvent(120),
-          ...doubleStitchEvents
-        ]
-      ]
-    ));
+          ...doubleStitchEvents,
+        ],
+      ])
+    );
   } else if (selectedItem === "targetprey") {
     // Target a bomb -> sword in a specific range, first by adding a delay
     // measured from trial runs https://docs.google.com/spreadsheets/d/1QAKLVQsf37u1Zyv2YzM3rSf8r2cbIqxUoQcaf247aZ8/edit?usp=sharing
@@ -215,13 +281,12 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
     events.push(new IntEvent(128, 0, 0));
     events.push(new IntEvent(6, 0, 1));
     // Delay for run actions
-    events.push(new DelayEvent(2246));
+    events.push(new DelayEvent(1915));
     // Finally, add a range event targeting a sword pull, covering 4 standard deviations in run variance
-    events.push(new RangeEvent(160, [
-      new IntEvent(128, 0, 0),
-      new IntEvent(6, 5, 5),
-    ]));
-  } else if (selectedItem === 'happysquare') {
+    events.push(
+      new RangeEvent(100, [new IntEvent(128, 0, 0), new IntEvent(6, 5, 5)])
+    );
+  } else if (selectedItem === "happysquare") {
     // Target a sword -> sword in a specific range
     // Sword pull
     events.push(new IntEvent(128, 0, 0));
@@ -229,10 +294,9 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
     // Delay for run actions
     events.push(new DelayEvent(556));
     // Range event for 4 standard deviations (approx. 17 * 4)
-    events.push(new RangeEvent(70, [
-      new IntEvent(128, 0, 0),
-      new IntEvent(6, 5, 5),
-    ]));
+    events.push(
+      new RangeEvent(70, [new IntEvent(128, 0, 0), new IntEvent(6, 5, 5)])
+    );
   } else {
     // Add item pull event
     events.push(new IntEvent(128, 0, 0));
@@ -255,9 +319,15 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
   }
 
   return events;
-}
+};
 
-
-
-
-export { EVENT_SEARCH_MAX_ITERATIONS, seedYieldsEvents, searchForEvent, buildCharacterEvents, buildPullEventList }
+export {
+  EVENT_SEARCH_MAX_ITERATIONS,
+  RUN_SIGMA,
+  seedYieldsEvents,
+  searchForEvent,
+  searchForBetterSeed,
+  calculateSuccessRate,
+  buildCharacterEvents,
+  buildPullEventList,
+};

@@ -1,35 +1,55 @@
-import { findSeedDifference, formatHex, isInt, isHex, rngAdv, rngInt } from './util.js';
-import { MANIP_ACTIONS, PORT_ADVANCE_THRESHOLD, STAGE_LOAD_ACTION, buildActionSequence } from './rolls.js';
-import { EVENT_SEARCH_MAX_ITERATIONS, searchForEvent, buildCharacterEvents, buildPullEventList } from './event.js';
+import {
+  findSeedDifference,
+  formatHex,
+  isInt,
+  isHex,
+  rngAdv,
+  rngInt,
+} from "./util.js";
+import {
+  MANIP_ACTIONS,
+  PORT_ADVANCE_THRESHOLD,
+  STAGE_LOAD_ACTION,
+  buildActionSequence,
+} from "./rolls.js";
+import {
+  EVENT_SEARCH_MAX_ITERATIONS,
+  RUN_SIGMA,
+  searchForEvent,
+  searchForBetterSeed,
+  calculateSuccessRate,
+  buildCharacterEvents,
+  buildPullEventList,
+} from "./event.js";
 
-console.log('Version 1.0.1');
+console.log("Version 1.0.1");
 /* Constants */
 const STOCK_ICONS = [
-	"/static/img/DrMarioBlack.png",
-	"/static/img/MarioOriginal.png",
-	"/static/img/LuigiOriginal.png",
-	"/static/img/BowserOriginal.png",
-	"/static/img/PeachOriginal.png",
-	"/static/img/YoshiOriginal.png",
-	"/static/img/DonkeyKongOriginal.png",
-	"/static/img/CaptainFalconOriginal.png",
-	"/static/img/GanondorfOriginal.png",
-	"/static/img/FalcoOriginal.png",
-	"/static/img/FoxOriginal.png",
-	"/static/img/NessOriginal.png",
-	"/static/img/IceClimbersOriginal.png",
-	"/static/img/KirbyOriginal.png",
-	"/static/img/SamusOriginal.png",
-	"/static/img/ZeldaOriginal.png",
-	"/static/img/LinkGreen.png",
-	"/static/img/YoungLinkGreen.png",
-	"/static/img/PichuOriginal.png",
-	"/static/img/PikachuOriginal.png",
-	"/static/img/JigglyPuffOriginal.png",
-	"/static/img/MewtwoOriginal.png",
-	"/static/img/Game & Watch Original.png",
-	"/static/img/MarthOriginal.png",
-	"/static/img/RoyOriginal.png",
+  "/static/img/DrMarioBlack.png",
+  "/static/img/MarioOriginal.png",
+  "/static/img/LuigiOriginal.png",
+  "/static/img/BowserOriginal.png",
+  "/static/img/PeachOriginal.png",
+  "/static/img/YoshiOriginal.png",
+  "/static/img/DonkeyKongOriginal.png",
+  "/static/img/CaptainFalconOriginal.png",
+  "/static/img/GanondorfOriginal.png",
+  "/static/img/FalcoOriginal.png",
+  "/static/img/FoxOriginal.png",
+  "/static/img/NessOriginal.png",
+  "/static/img/IceClimbersOriginal.png",
+  "/static/img/KirbyOriginal.png",
+  "/static/img/SamusOriginal.png",
+  "/static/img/ZeldaOriginal.png",
+  "/static/img/LinkGreen.png",
+  "/static/img/YoungLinkGreen.png",
+  "/static/img/PichuOriginal.png",
+  "/static/img/PikachuOriginal.png",
+  "/static/img/JigglyPuffOriginal.png",
+  "/static/img/MewtwoOriginal.png",
+  "/static/img/Game & Watch Original.png",
+  "/static/img/MarthOriginal.png",
+  "/static/img/RoyOriginal.png",
 ];
 
 const CSS_ICONS = [
@@ -83,10 +103,8 @@ const KONAMI = [
   "ArrowLeft",
   "ArrowRight",
   "KeyB",
-  "KeyA"
+  "KeyA",
 ];
-
-
 
 /* State Variables */
 let charSeq = [];
@@ -95,9 +113,13 @@ let lastSeed = -1;
 let searchCount = 0;
 let keySeq = [];
 
+// State for "Find Better Seed" functionality
+let currentSearchResult = null;
+let currentEvents = null;
+let currentBaseSeed = null;
 
 function reset(forceReset = false) {
-  if (forceReset || confirm('Reset current seed and begin new search?')) {
+  if (forceReset || confirm("Reset current seed and begin new search?")) {
     // Reset state data
     charSeq = [];
     isFirstSearch = true;
@@ -113,34 +135,34 @@ function reset(forceReset = false) {
 function incrementSearchCount() {
   searchCount++;
 
-  let searchCountSpan = document.getElementById('search-count');
+  let searchCountSpan = document.getElementById("search-count");
   searchCountSpan.innerHTML = searchCount;
 }
 
 function toggleMismatchOptions() {
   // Show or hide mismatch options depending on checkbox state
-  let mismatchCheckbox = document.getElementById('mismatch-checkbox');
-  let mismatchOptions = document.getElementById('mismatch-control');
+  let mismatchCheckbox = document.getElementById("mismatch-checkbox");
+  let mismatchOptions = document.getElementById("mismatch-control");
 
   if (mismatchCheckbox.checked) {
     // Show options
-    mismatchOptions.classList.remove('none');
+    mismatchOptions.classList.remove("none");
   } else {
     // Hide options
-    mismatchOptions.classList.add('none');
+    mismatchOptions.classList.add("none");
   }
 }
 
 function getManualSeedText() {
-  let manualSeedInput = document.getElementById('manual-seed-input');
+  let manualSeedInput = document.getElementById("manual-seed-input");
   let rawText = manualSeedInput.value;
 
-  return rawText.replace(/\s/g, '');
+  return rawText.replace(/\s/g, "");
 }
 
 function validateManualSeed(seedText) {
   if (!seedText) return false;
-  let stripped = seedText.replace(/\s/g, '');
+  let stripped = seedText.replace(/\s/g, "");
 
   // Parse int
   let hexString = `0x${stripped}`;
@@ -149,13 +171,11 @@ function validateManualSeed(seedText) {
   let intVal = parseInt(hexString, 16);
 
   // Verify within range [0, 2^32 -1]
-  let withinRange = (intVal >= 0 && intVal <= 2**32 - 1);
+  let withinRange = intVal >= 0 && intVal <= 2 ** 32 - 1;
 
   // should be the last check lol
   return withinRange;
-
 }
-
 
 function onManualSeedInput(e) {
   // Validate content + enable search accordingly
@@ -163,27 +183,23 @@ function onManualSeedInput(e) {
   let isValidSeed = validateManualSeed(rawText);
 
   // Update search button state accordingly
-  document.getElementById('search-button').disabled = !isValidSeed;
+  document.getElementById("search-button").disabled = !isValidSeed;
 }
-
 
 function addActionLine(parent, text) {
-  let p = document.createElement('p');
-  p.classList.add('action-line')
+  let p = document.createElement("p");
+  p.classList.add("action-line");
   p.innerHTML = text;
 
-  parent.appendChild(p)
+  parent.appendChild(p);
 }
-
 
 function printAction(parent, action, count) {
   addActionLine(parent, `${count} \u00D7 ${action.label} (${action.rolls})`);
 }
 
-
-
 function displayActionSequence(actionSequence, rolls, seakSpawn) {
-  let actionsBlock = document.getElementById('actions');
+  let actionsBlock = document.getElementById("actions");
 
   let numActions = 0;
   for (let value of actionSequence.values()) {
@@ -191,14 +207,16 @@ function displayActionSequence(actionSequence, rolls, seakSpawn) {
   }
 
   // Print header
-  addActionLine(actionsBlock, '----------------------------------');
-  addActionLine(actionsBlock, `Achievable in ${numActions} action${numActions == 1 ? '' : 's'}`);
-  addActionLine(actionsBlock, '----------------------------------');
-  addActionLine(actionsBlock, `Manip Stage: [${seakSpawn ? 'SEAK' : 'PEACH'}]`);
+  addActionLine(actionsBlock, "----------------------------------");
+  addActionLine(
+    actionsBlock,
+    `Achievable in ${numActions} action${numActions == 1 ? "" : "s"}`
+  );
+  addActionLine(actionsBlock, "----------------------------------");
+  addActionLine(actionsBlock, `Manip Stage: [${seakSpawn ? "SEAK" : "PEACH"}]`);
   addActionLine(actionsBlock, `Target: ${rolls} rolls`);
-  
-  actionsBlock.appendChild(document.createElement('br'));
 
+  actionsBlock.appendChild(document.createElement("br"));
 
   // Always attempt to print the stage loads first if applicable
   if (actionSequence.get(STAGE_LOAD_ACTION)) {
@@ -213,49 +231,51 @@ function displayActionSequence(actionSequence, rolls, seakSpawn) {
   }
 }
 
-
 function buildCharIconList() {
-  let parent = document.getElementById('char-seq-container');
-  parent.innerHTML = '';
+  let parent = document.getElementById("char-seq-container");
+  parent.innerHTML = "";
 
   for (let i = 0; i < charSeq.length; i++) {
     let characterIndex = charSeq[i];
 
-    let icon = document.createElement('img');
-    icon.classList.add('stock-icon');
+    let icon = document.createElement("img");
+    icon.classList.add("stock-icon");
     icon.ondragstart = () => false;
-    icon.setAttribute('src', STOCK_ICONS[characterIndex]);
+    icon.setAttribute("src", STOCK_ICONS[characterIndex]);
 
     parent.appendChild(icon);
   }
 }
 
 function updateCharSeqDisplay() {
-  let count = document.getElementById('character-count');
+  let count = document.getElementById("character-count");
 
-  let max = isFirstSearch ? FIRST_SEARCH_MAX_CHARS : SUCCESSIVE_SEARCH_MAX_CHARS;
-  let min = isFirstSearch ? FIRST_SEARCH_MIN_CHARS : SUCCESSIVE_SEARCH_MIN_CHARS;
+  let max = isFirstSearch
+    ? FIRST_SEARCH_MAX_CHARS
+    : SUCCESSIVE_SEARCH_MAX_CHARS;
+  let min = isFirstSearch
+    ? FIRST_SEARCH_MIN_CHARS
+    : SUCCESSIVE_SEARCH_MIN_CHARS;
 
   count.innerHTML = `${charSeq.length}/${min}`;
 
   // Update color based on state
-  count.classList.remove('empty-count');
-  count.classList.remove('partial-count');
-  count.classList.remove('full-count');
+  count.classList.remove("empty-count");
+  count.classList.remove("partial-count");
+  count.classList.remove("full-count");
 
   if (charSeq.length == 0) {
-    count.classList.add('empty-count');
+    count.classList.add("empty-count");
   } else if (charSeq.length < min) {
-    count.classList.add('partial-count');
+    count.classList.add("partial-count");
   } else {
-    count.classList.add('full-count');
+    count.classList.add("full-count");
   }
 
   // Also update the button here
-  let searchButton = document.getElementById('search-button');
-  searchButton.disabled = (charSeq.length < min);
+  let searchButton = document.getElementById("search-button");
+  searchButton.disabled = charSeq.length < min;
 }
-
 
 function addCharToSeq(characterIndex) {
   // check for super long sequences I guess
@@ -264,7 +284,7 @@ function addCharToSeq(characterIndex) {
     charSeq = charSeq.slice(1);
   }
 
-  console.log('adding character: ' + characterIndex);
+  console.log("adding character: " + characterIndex);
 
   // Add to index array
   charSeq.push(characterIndex);
@@ -287,11 +307,10 @@ function undoChar() {
   updateCharSeqDisplay();
 }
 
-
 function clearSeq() {
   charSeq = [];
 
-  let parent = document.getElementById('char-seq-container');
+  let parent = document.getElementById("char-seq-container");
   parent.innerHTML = ""; // Clear that sucka
 
   // Clear character count
@@ -299,32 +318,166 @@ function clearSeq() {
 }
 
 function clearManualSeed() {
-  let manualSeedInput = document.getElementById('manual-seed-input');
+  let manualSeedInput = document.getElementById("manual-seed-input");
   manualSeedInput.value = "";
 }
 
 function clearResults() {
   // Clear results display
-  document.getElementById('seed-span').innerHTML = '';
-  document.getElementById('summary').innerHTML = '';
-  document.getElementById('actions').innerHTML = '';
+  document.getElementById("seed-span").innerHTML = "";
+  document.getElementById("summary").innerHTML = "";
+  document.getElementById("actions").innerHTML = "";
 }
 
 function displaySearchResult(parent, searchResult) {
-  parent.appendChild(document.createTextNode('Event Seed: 0x' + formatHex(searchResult.eventSeed)));
-  parent.appendChild(document.createElement('br'));
-  parent.appendChild(document.createTextNode('0x' + formatHex(searchResult.startSeed) + ' => 0x' + formatHex(searchResult.eventSeed)));
-  parent.appendChild(document.createElement('br'));
-  parent.appendChild(document.createTextNode('Interval: ' + searchResult.interval));
+  parent.appendChild(
+    document.createTextNode(
+      "Event Seed: 0x" + formatHex(searchResult.eventSeed)
+    )
+  );
+  parent.appendChild(document.createElement("br"));
+  parent.appendChild(
+    document.createTextNode(
+      "0x" +
+        formatHex(searchResult.startSeed) +
+        " => 0x" +
+        formatHex(searchResult.eventSeed)
+    )
+  );
+  parent.appendChild(document.createElement("br"));
+  parent.appendChild(
+    document.createTextNode("Interval: " + searchResult.interval)
+  );
+
+  // Display range info if present (e.g., for targetprey sword position)
+  if (searchResult.rangeInfo) {
+    const { rangeOffset, rangeSize } = searchResult.rangeInfo;
+    const center = Math.floor(rangeSize / 2);
+    const distanceFromCenter = rangeOffset - center;
+    const sign = distanceFromCenter >= 0 ? "+" : "";
+
+    // Calculate and display success rate
+    const successRate = calculateSuccessRate(rangeOffset, rangeSize);
+    const successPercent = (successRate * 100).toFixed(2);
+    const expectedRuns = Math.round(1 / successRate);
+
+    parent.appendChild(document.createElement("br"));
+    parent.appendChild(
+      document.createTextNode(
+        `Sword position: ${rangeOffset}/${rangeSize} (${sign}${distanceFromCenter} from center)`
+      )
+    );
+    parent.appendChild(document.createElement("br"));
+    parent.appendChild(
+      document.createTextNode(
+        `Success rate: ${successPercent}% (~1 in ${expectedRuns} runs)`
+      )
+    );
+
+    // Add "Find Better Seed" button
+    parent.appendChild(document.createElement("br"));
+    parent.appendChild(document.createElement("br"));
+
+    const betterSeedBtn = document.createElement("button");
+    betterSeedBtn.textContent = "Find Better Seed";
+    betterSeedBtn.className = "better-seed-btn";
+    betterSeedBtn.onclick = findBetterSeed;
+    parent.appendChild(betterSeedBtn);
+  }
 
   // Log for funsies
-  console.log('Event Seed: 0x' + formatHex(searchResult.eventSeed));
-  console.log('End Seed: 0x' + formatHex(searchResult.endSeed));
-  console.log('Interval: ' + searchResult.interval);
+  console.log("Event Seed: 0x" + formatHex(searchResult.eventSeed));
+  console.log("End Seed: 0x" + formatHex(searchResult.endSeed));
+  console.log("Interval: " + searchResult.interval);
+  if (searchResult.rangeInfo) {
+    console.log("Range Info:", searchResult.rangeInfo);
+    const successRate = calculateSuccessRate(
+      searchResult.rangeInfo.rangeOffset,
+      searchResult.rangeInfo.rangeSize
+    );
+    console.log("Success Rate:", (successRate * 100).toFixed(2) + "%");
+  }
+}
+
+function findBetterSeed() {
+  if (
+    !currentSearchResult ||
+    !currentEvents ||
+    !currentSearchResult.rangeInfo
+  ) {
+    alert("No current search to improve");
+    return;
+  }
+
+  const { rangeOffset, rangeSize } = currentSearchResult.rangeInfo;
+
+  // Search starting from the seed AFTER the current result
+  const searchStart = rngAdv(currentSearchResult.eventSeed);
+
+  // Show searching status
+  const summary = document.getElementById("summary");
+  const btn = summary.querySelector(".better-seed-btn");
+  if (btn) {
+    btn.textContent = "Searching...";
+    btn.disabled = true;
+  }
+
+  // Use setTimeout to allow UI to update before search
+  setTimeout(() => {
+    const betterResult = searchForBetterSeed(
+      currentEvents,
+      searchStart,
+      rangeOffset,
+      rangeSize,
+      500000 // Search up to 500k seeds
+    );
+
+    if (betterResult.success) {
+      // Update the search result - adjust interval to be from original base seed
+      betterResult.startSeed = currentBaseSeed;
+      betterResult.interval = findSeedDifference(
+        currentBaseSeed,
+        betterResult.eventSeed
+      );
+
+      // Store new result
+      currentSearchResult = betterResult;
+
+      // Re-display everything
+      const seakSpawn =
+        document.querySelector('input[name="spawn"]:checked').value === "seak";
+
+      summary.innerHTML = "";
+      displaySearchResult(summary, betterResult);
+
+      const actionsBlock = document.getElementById("actions");
+      actionsBlock.innerHTML = "";
+
+      const rolls = betterResult.interval;
+      if (rolls > PORT_ADVANCE_THRESHOLD) {
+        displayPortAdvance(rolls);
+      } else {
+        const actionSequence = buildActionSequence(rolls, seakSpawn);
+        displayActionSequence(actionSequence, rolls, seakSpawn);
+      }
+
+      console.log(
+        `Found better seed after searching ${betterResult.searchedSeeds} seeds`
+      );
+    } else {
+      alert(
+        `No better seed found after searching ${betterResult.searchedSeeds} seeds. Try again or use current seed.`
+      );
+      if (btn) {
+        btn.textContent = "Find Better Seed";
+        btn.disabled = false;
+      }
+    }
+  }, 10);
 }
 
 function displayPortAdvance(rolls) {
-  let actionsBlock = document.getElementById('actions');
+  let actionsBlock = document.getElementById("actions");
 
   let seconds = rolls / 4833.9;
   if (seconds > 0.25) {
@@ -334,20 +487,24 @@ function displayPortAdvance(rolls) {
   // Update seconds to account for possible minutes
   seconds = seconds % 60;
 
-  let minutesString = `${minutes} minute${minutes >= 2 ? 's' : ''}`;
-  let secondsString = `${(seconds - 0.25).toFixed(2)} second${(seconds - 0.25) >= 2 ? 's' : ''}`;
-  let duration = `${minutes ? minutesString + ' and ' : ''}${secondsString}`;
+  let minutesString = `${minutes} minute${minutes >= 2 ? "s" : ""}`;
+  let secondsString = `${(seconds - 0.25).toFixed(2)} second${
+    seconds - 0.25 >= 2 ? "s" : ""
+  }`;
+  let duration = `${minutes ? minutesString + " and " : ""}${secondsString}`;
 
   addActionLine(actionsBlock, `Roll count exceeds ${PORT_ADVANCE_THRESHOLD}!`);
-  addActionLine(actionsBlock, 'Start manip on the VS CSS');
-  addActionLine(actionsBlock, '--------------------------------');
-  addActionLine(actionsBlock, `Open two character ports for ${duration} and continue search!`);
+  addActionLine(actionsBlock, "Start manip on the VS CSS");
+  addActionLine(actionsBlock, "--------------------------------");
+  addActionLine(
+    actionsBlock,
+    `Open two character ports for ${duration} and continue search!`
+  );
 }
-
 
 // Found seed, now to search for an event
 function processSeed(seed) {
-  let seedSpan = document.getElementById('seed-span');
+  let seedSpan = document.getElementById("seed-span");
 
   // Handle success
   if (seed >= 0) {
@@ -357,22 +514,31 @@ function processSeed(seed) {
     // Display the Seed
     let seedString = formatHex(seed);
     console.log(seedString);
-    seedSpan.innerHTML = '0x' + seedString;
+    seedSpan.innerHTML = "0x" + seedString;
 
     // Search for target event
-    let mismatch = document.getElementById('mismatch-checkbox').checked;
-    let spawnCondition = document.querySelector('input[name="spawn"]:checked').value;
-    let selectedItem = document.querySelector('input[name="item"]:checked').value;
+    let mismatch = document.getElementById("mismatch-checkbox").checked;
+    let spawnCondition = document.querySelector(
+      'input[name="spawn"]:checked'
+    ).value;
+    let selectedItem = document.querySelector(
+      'input[name="item"]:checked'
+    ).value;
     let events = buildPullEventList(mismatch, spawnCondition, selectedItem);
     let searchResult = searchForEvent(events, seed);
 
-    const seakSpawn = spawnCondition === 'seak';
+    const seakSpawn = spawnCondition === "seak";
 
     // Clear summary block for result
-    let summary = document.getElementById('summary');
-    summary.innerHTML = '';
+    let summary = document.getElementById("summary");
+    summary.innerHTML = "";
 
     if (searchResult.success) {
+      // Store state for "Find Better Seed" functionality
+      currentSearchResult = searchResult;
+      currentEvents = events;
+      currentBaseSeed = seed;
+
       displaySearchResult(summary, searchResult);
 
       let rolls = searchResult.interval;
@@ -386,7 +552,7 @@ function processSeed(seed) {
 
         displayActionSequence(actionSequence, rolls, seakSpawn);
       }
-      
+
       isFirstSearch = false; // Update flag for future searches
       incrementSearchCount(); // Track searches because that's fun :)
     } else {
@@ -395,16 +561,14 @@ function processSeed(seed) {
     }
   } else {
     clearResults();
-    seedSpan.innerHTML = 'Not Found';
-    alert('Seed not found');
+    seedSpan.innerHTML = "Not Found";
+    alert("Seed not found");
     reset(true);
   }
 
   // Clear character sequence + manual entry
   clearSeq();
 }
-
-
 
 function searchForSeed() {
   // Check for manual seed entry
@@ -418,7 +582,6 @@ function searchForSeed() {
     return;
   }
 
-
   // First search?
   if (isFirstSearch) {
     searchForNewSeed();
@@ -427,9 +590,9 @@ function searchForSeed() {
 
   // Validate char seq length
   if (charSeq.length < SUCCESSIVE_SEARCH_MIN_CHARS) {
-    alert('Please enter more characters');
+    alert("Please enter more characters");
   }
-  
+
   // Do our own search with the char seq!
   let characterEvents = buildCharacterEvents(charSeq);
 
@@ -443,39 +606,42 @@ function searchForSeed() {
 
     processSeed(seed);
   } else {
-    alert(`Character sequence not found after searching ${EVENT_SEARCH_MAX_ITERATIONS} seeds`);
+    alert(
+      `Character sequence not found after searching ${EVENT_SEARCH_MAX_ITERATIONS} seeds`
+    );
   }
 }
-
 
 function searchForNewSeed() {
   // check sequence
   if (charSeq.length < 1) {
-    alert('Please enter a character sequence!');
+    alert("Please enter a character sequence!");
     return;
   } else if (charSeq.length < FIRST_SEARCH_MIN_CHARS) {
-    alert(`First character sequence must be at least ${FIRST_SEARCH_MIN_CHARS} chararacters long!`);
+    alert(
+      `First character sequence must be at least ${FIRST_SEARCH_MIN_CHARS} chararacters long!`
+    );
     return;
   }
 
   // Build the URL I guess lol
-  let url = '/seed';
-  let arraySpecifier = 'seq[]';
+  let url = "/seed";
+  let arraySpecifier = "seq[]";
 
   for (let i = 0; i < charSeq.length; i++) {
     if (i == 0) {
-      url = url + '?'
+      url = url + "?";
     } else {
-      url = url + '&'
+      url = url + "&";
     }
 
-    url = url + arraySpecifier + '=' + charSeq[i];
+    url = url + arraySpecifier + "=" + charSeq[i];
   }
 
   // Disable search during query
-  document.getElementById('search-button').disabled = true;
+  document.getElementById("search-button").disabled = true;
   // Update seed string to indicate search
-  document.getElementById('seed-span').innerHTML = 'Searching...';
+  document.getElementById("seed-span").innerHTML = "Searching...";
 
   fetch(url)
     .then(function (response) {
@@ -484,57 +650,55 @@ function searchForNewSeed() {
         throw new Error(`Status Code: ${response.status} `);
       }
       return response.json();
-    }).then(function (result) {
-      let seed = result.seed
+    })
+    .then(function (result) {
+      let seed = result.seed;
 
       // Check that seed, dog
       if (!isInt(seed)) {
-        alert(`Error processing seed: ${seed}`)
+        alert(`Error processing seed: ${seed}`);
       } else {
         processSeed(seed);
       }
-    }).catch(function(error) {
+    })
+    .catch(function (error) {
       alert(`Error Executing Search. ${error}`);
       console.log("Fetch error: " + error);
       console.log(error);
-    }).finally(() => {
-      document.getElementById('search-button').disabled = false;
     })
-
+    .finally(() => {
+      document.getElementById("search-button").disabled = false;
+    });
 }
 
-
-
-
 function buildCSS() {
-  let container = document.getElementById('css');
+  let container = document.getElementById("css");
 
   let count = 0;
 
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 9; col++) {
-      let icon = document.createElement('img');
-      icon.classList.add('css-icon');
+      let icon = document.createElement("img");
+      icon.classList.add("css-icon");
       icon.ondragstart = () => false;
 
       if (row == 2 && (col == 0 || col == 8)) {
         // Random space, hide element and move on
-        icon.classList.add('hidden');
+        icon.classList.add("hidden");
       } else {
-        icon.setAttribute('src', CSS_ICONS[row][col]);
-        
+        icon.setAttribute("src", CSS_ICONS[row][col]);
+
         // Set callback
-        icon.onclick = (function(n) {
+        icon.onclick = (function (n) {
           return () => addCharToSeq(n);
         })(count);
 
-        count++; // Increment 
+        count++; // Increment
       }
 
       container.appendChild(icon);
     }
   }
-
 }
 
 function arrayEquals(arr1, arr2) {
@@ -551,30 +715,28 @@ function arrayEquals(arr1, arr2) {
   return true;
 }
 
-
-
 // build the UI lol
 buildCSS();
 
 // Bind seed input event?
-let manualSeedInput = document.getElementById('manual-seed-input');
-manualSeedInput.addEventListener('input', onManualSeedInput);
+let manualSeedInput = document.getElementById("manual-seed-input");
+manualSeedInput.addEventListener("input", onManualSeedInput);
 
 window.toggleMismatchOptions = toggleMismatchOptions;
 window.searchForSeed = searchForSeed;
 window.undoChar = undoChar;
 window.clearSeq = clearSeq;
 window.reset = reset;
+window.findBetterSeed = findBetterSeed;
 
-addEventListener('keyup', (event) => {
-  keySeq.push(event.code)
+addEventListener("keyup", (event) => {
+  keySeq.push(event.code);
   if (keySeq.length > MAX_KEY_SEQ_LENGTH) {
     keySeq = keySeq.slice(1);
   }
 
   if (arrayEquals(keySeq, KONAMI)) {
-    document.getElementById('secret').classList.remove('hidden');
-    console.log(':targetprey:');
+    document.getElementById("secret").classList.remove("hidden");
+    console.log(":targetprey:");
   }
-
-})
+});
