@@ -16,7 +16,6 @@ import {
   EVENT_SEARCH_MAX_ITERATIONS,
   RUN_SIGMA,
   searchForEvent,
-  searchForBetterSeed,
   calculateSuccessRate,
   buildCharacterEvents,
   buildPullEventList,
@@ -113,10 +112,6 @@ let lastSeed = -1;
 let searchCount = 0;
 let keySeq = [];
 
-// State for "Find Better Seed" functionality
-let currentSearchResult = null;
-let currentEvents = null;
-let currentBaseSeed = null;
 
 function reset(forceReset = false) {
   if (forceReset || confirm("Reset current seed and begin new search?")) {
@@ -361,28 +356,37 @@ function displaySearchResult(parent, searchResult) {
     const successPercent = (successRate * 100).toFixed(2);
     const expectedRuns = Math.round(1 / successRate);
 
+    // Check if this is targetprey to display iterations instead of sword position
+    const selectedItem = document.querySelector(
+      'input[name="item"]:checked'
+    )?.value;
+    
     parent.appendChild(document.createElement("br"));
-    parent.appendChild(
-      document.createTextNode(
-        `Sword position: ${rangeOffset}/${rangeSize} (${sign}${distanceFromCenter} from center)`
-      )
-    );
+    
+    if (selectedItem === "targetprey") {
+      // Display iterations between bomb and sword pull RNG values
+      // Delay is 1899, plus the rangeOffset gives total iterations
+      const iterations = 1899 + rangeOffset;
+      parent.appendChild(
+        document.createTextNode(
+          `Iterations between bomb and sword pull: ${iterations}`
+        )
+      );
+    } else {
+      // Display sword position for other items (e.g., happysquare)
+      parent.appendChild(
+        document.createTextNode(
+          `Sword position: ${rangeOffset}/${rangeSize} (${sign}${distanceFromCenter} from center)`
+        )
+      );
+    }
+    
     parent.appendChild(document.createElement("br"));
     parent.appendChild(
       document.createTextNode(
         `Success rate: ${successPercent}% (~1 in ${expectedRuns} runs)`
       )
     );
-
-    // Add "Find Better Seed" button
-    parent.appendChild(document.createElement("br"));
-    parent.appendChild(document.createElement("br"));
-
-    const betterSeedBtn = document.createElement("button");
-    betterSeedBtn.textContent = "Find Better Seed";
-    betterSeedBtn.className = "better-seed-btn";
-    betterSeedBtn.onclick = findBetterSeed;
-    parent.appendChild(betterSeedBtn);
   }
 
   // Log for funsies
@@ -397,83 +401,6 @@ function displaySearchResult(parent, searchResult) {
     );
     console.log("Success Rate:", (successRate * 100).toFixed(2) + "%");
   }
-}
-
-function findBetterSeed() {
-  if (
-    !currentSearchResult ||
-    !currentEvents ||
-    !currentSearchResult.rangeInfo
-  ) {
-    alert("No current search to improve");
-    return;
-  }
-
-  const { rangeOffset, rangeSize } = currentSearchResult.rangeInfo;
-
-  // Search starting from the seed AFTER the current result
-  const searchStart = rngAdv(currentSearchResult.eventSeed);
-
-  // Show searching status
-  const summary = document.getElementById("summary");
-  const btn = summary.querySelector(".better-seed-btn");
-  if (btn) {
-    btn.textContent = "Searching...";
-    btn.disabled = true;
-  }
-
-  // Use setTimeout to allow UI to update before search
-  setTimeout(() => {
-    const betterResult = searchForBetterSeed(
-      currentEvents,
-      searchStart,
-      rangeOffset,
-      rangeSize,
-      500000 // Search up to 500k seeds
-    );
-
-    if (betterResult.success) {
-      // Update the search result - adjust interval to be from original base seed
-      betterResult.startSeed = currentBaseSeed;
-      betterResult.interval = findSeedDifference(
-        currentBaseSeed,
-        betterResult.eventSeed
-      );
-
-      // Store new result
-      currentSearchResult = betterResult;
-
-      // Re-display everything
-      const seakSpawn =
-        document.querySelector('input[name="spawn"]:checked').value === "seak";
-
-      summary.innerHTML = "";
-      displaySearchResult(summary, betterResult);
-
-      const actionsBlock = document.getElementById("actions");
-      actionsBlock.innerHTML = "";
-
-      const rolls = betterResult.interval;
-      if (rolls > PORT_ADVANCE_THRESHOLD) {
-        displayPortAdvance(rolls);
-      } else {
-        const actionSequence = buildActionSequence(rolls, seakSpawn);
-        displayActionSequence(actionSequence, rolls, seakSpawn);
-      }
-
-      console.log(
-        `Found better seed after searching ${betterResult.searchedSeeds} seeds`
-      );
-    } else {
-      alert(
-        `No better seed found after searching ${betterResult.searchedSeeds} seeds. Try again or use current seed.`
-      );
-      if (btn) {
-        btn.textContent = "Find Better Seed";
-        btn.disabled = false;
-      }
-    }
-  }, 10);
 }
 
 function displayPortAdvance(rolls) {
@@ -534,11 +461,6 @@ function processSeed(seed) {
     summary.innerHTML = "";
 
     if (searchResult.success) {
-      // Store state for "Find Better Seed" functionality
-      currentSearchResult = searchResult;
-      currentEvents = events;
-      currentBaseSeed = seed;
-
       displaySearchResult(summary, searchResult);
 
       let rolls = searchResult.interval;
@@ -727,7 +649,6 @@ window.searchForSeed = searchForSeed;
 window.undoChar = undoChar;
 window.clearSeq = clearSeq;
 window.reset = reset;
-window.findBetterSeed = findBetterSeed;
 
 addEventListener("keyup", (event) => {
   keySeq.push(event.code);
