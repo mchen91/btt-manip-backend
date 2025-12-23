@@ -46,7 +46,13 @@ fi
 echo ""
 echo "Building C++ extension module..."
 # Use venv's python to get the correct pybind11 includes and extension suffix
-c++ -O3 -Wall -shared -std=c++11 -fPIC $($VENV_PYTHON -m pybind11 --includes) rng.cpp -o rng$($VENV_PYTHON -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS command
+    c++ -O3 -Wall -shared -std=c++11 -undefined dynamic_lookup $($VENV_PYTHON -m pybind11 --includes) rng.cpp -o rng$($VENV_PYTHON -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
+else
+    # Linux/WSL command
+    c++ -O3 -Wall -shared -std=c++11 -fPIC $($VENV_PYTHON -m pybind11 --includes) rng.cpp -o rng$($VENV_PYTHON -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
+fi
 
 if [ $? -eq 0 ]; then
     echo ""

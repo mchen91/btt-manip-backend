@@ -11,5 +11,16 @@ if [ ! -f "venv/bin/python" ]; then
     exit 1
 fi
 
+# Try to find local IP address (macOS specific check first, then fallback)
+LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ifconfig | grep "inet " | grep -v 127.0.0.1 | head -n 1 | awk '{print $2}')
+
+echo "----------------------------------------------------"
+echo "BTT Manip Backend"
+echo "Local access:   http://localhost:5001/"
+if [ ! -z "$LOCAL_IP" ]; then
+    echo "Network access: http://$LOCAL_IP:5001/"
+fi
+echo "----------------------------------------------------"
+
 venv/bin/python app.py
 

@@ -44,5 +44,4 @@ def getSeed():
     return jsonify(result)
 
 if __name__ == '__main__':
-    print('Running app at: http://localhost:5001/')
     app.run(host='0.0.0.0', port=5001)
