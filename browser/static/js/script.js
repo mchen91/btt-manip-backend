@@ -68,6 +68,10 @@ const CSS_ICONS = [
   ],
 ];
 
+// First search uses the client-side character RSS (charrss.js): a direct CVP /
+// Hidden-Number-Problem seed reconstruction that resolves the seed from 9 characters
+// (validated 5000/5000, no false positives) -- see charrss_constants.js provenance /
+// CHARRSS_9CHAR_FINDINGS.md.
 const FIRST_SEARCH_MAX_CHARS = 9;
 const FIRST_SEARCH_MIN_CHARS = 9;
 const SUCCESSIVE_SEARCH_MAX_CHARS = 9;
@@ -87,6 +91,14 @@ const KONAMI = [
 ];
 
 
+
+/* Search mode (first search).
+ *   default  -> client-side character RSS (CVP) in a Web Worker (no server round-trip)
+ *   ?search=server -> legacy fetch('/seed') backend (fallback during transition)
+ *   ?search=shadow -> run BOTH, console.warn on any disagreement (M5 canary)
+ * The successive (>=4 char) search is always client-side and unaffected.
+ */
+const SEARCH_MODE = new URLSearchParams(window.location.search).get('search');
 
 /* State Variables */
 let charSeq = [];
@@ -258,8 +270,9 @@ function updateCharSeqDisplay() {
 
 
 function addCharToSeq(characterIndex) {
-  // check for super long sequences I guess
-  if (charSeq.length > 9) {
+  // Keep a rolling buffer no longer than the current search's max length.
+  let maxChars = isFirstSearch ? FIRST_SEARCH_MAX_CHARS : SUCCESSIVE_SEARCH_MAX_CHARS;
+  if (charSeq.length >= maxChars) {
     // pop one off the list!
     charSeq = charSeq.slice(1);
   }
@@ -448,59 +461,104 @@ function searchForSeed() {
 }
 
 
+// Legacy server search: GET /seed?seq[]=... -> Promise<seed>.
+function serverSearchForSeed(seq) {
+  let url = '/seed';
+  let arraySpecifier = 'seq[]';
+  for (let i = 0; i < seq.length; i++) {
+    url = url + (i == 0 ? '?' : '&') + arraySpecifier + '=' + seq[i];
+  }
+
+  return fetch(url).then(function (response) {
+    if (!response.ok) {
+      throw new Error(`Status Code: ${response.status} `);
+    }
+    return response.json();
+  }).then(function (result) {
+    return result.seed;
+  });
+}
+
+// Client-side linear RSS -> Promise<seed>. Runs in a module Web Worker so the
+// residual search never blocks the UI; falls back to a lazy main-thread import
+// where workers are unavailable (e.g. older environments / tests).
+function clientSearchForSeed(seq) {
+  if (typeof Worker !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker('/static/js/charrss_worker.js', { type: 'module' });
+      worker.onmessage = (e) => {
+        worker.terminate();
+        if (e.data && e.data.error) reject(new Error(e.data.error));
+        else resolve(e.data.seed);
+      };
+      worker.onerror = (e) => {
+        worker.terminate();
+        reject(new Error(e.message || 'charrss worker error'));
+      };
+      worker.postMessage({ charSeq: seq });
+    });
+  }
+  return import('./charrss.js').then((m) => m.searchForCharSeed(seq));
+}
+
+
 function searchForNewSeed() {
   // check sequence
   if (charSeq.length < 1) {
     alert('Please enter a character sequence!');
     return;
   } else if (charSeq.length < FIRST_SEARCH_MIN_CHARS) {
-    alert(`First character sequence must be at least ${FIRST_SEARCH_MIN_CHARS} chararacters long!`);
+    alert(`First character sequence must be at least ${FIRST_SEARCH_MIN_CHARS} characters long!`);
     return;
   }
 
-  // Build the URL I guess lol
-  let url = '/seed';
-  let arraySpecifier = 'seq[]';
+  // Snapshot the sequence -- processSeed() clears charSeq, and the search is async.
+  const seq = charSeq.slice();
 
-  for (let i = 0; i < charSeq.length; i++) {
-    if (i == 0) {
-      url = url + '?'
-    } else {
-      url = url + '&'
-    }
-
-    url = url + arraySpecifier + '=' + charSeq[i];
-  }
-
-  // Disable search during query
+  // Disable search during query + indicate searching
   document.getElementById('search-button').disabled = true;
-  // Update seed string to indicate search
   document.getElementById('seed-span').innerHTML = 'Searching...';
 
-  fetch(url)
-    .then(function (response) {
-      clearResults();
-      if (!response.ok) {
-        throw new Error(`Status Code: ${response.status} `);
-      }
-      return response.json();
-    }).then(function (result) {
-      let seed = result.seed
+  const handleSeed = (seed) => {
+    clearResults();
+    if (!isInt(seed)) {
+      alert(`Error processing seed: ${seed}`);
+    } else {
+      processSeed(seed);
+    }
+  };
+  const handleError = (error) => {
+    clearResults();
+    alert(`Error Executing Search. ${error}`);
+    console.log('Search error: ' + error);
+    console.log(error);
+  };
+  const done = () => { document.getElementById('search-button').disabled = false; };
 
-      // Check that seed, dog
-      if (!isInt(seed)) {
-        alert(`Error processing seed: ${seed}`)
-      } else {
-        processSeed(seed);
-      }
-    }).catch(function(error) {
-      alert(`Error Executing Search. ${error}`);
-      console.log("Fetch error: " + error);
-      console.log(error);
-    }).finally(() => {
-      document.getElementById('search-button').disabled = false;
-    })
+  // Legacy server path (explicit opt-in).
+  if (SEARCH_MODE === 'server') {
+    serverSearchForSeed(seq).then(handleSeed).catch(handleError).finally(done);
+    return;
+  }
 
+  const clientPromise = clientSearchForSeed(seq);
+
+  // Canary: run both and warn on disagreement, but use the client result.
+  if (SEARCH_MODE === 'shadow') {
+    Promise.all([clientPromise, serverSearchForSeed(seq).catch((e) => {
+      console.warn('shadow: server search failed', e);
+      return undefined;
+    })]).then(([clientSeed, serverSeed]) => {
+      if (serverSeed !== undefined && clientSeed !== serverSeed) {
+        console.warn(`shadow MISMATCH: client=${clientSeed} server=${serverSeed} seq=[${seq}]`);
+      }
+      handleSeed(clientSeed);
+    }).catch(handleError).finally(done);
+    return;
+  }
+
+  // Default: client-side only (no server).
+  clientPromise.then(handleSeed).catch(handleError).finally(done);
 }
 
 
