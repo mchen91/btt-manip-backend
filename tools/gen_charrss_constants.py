@@ -19,7 +19,6 @@ Default output: browser/static/js/charrss_constants.js
 """
 import argparse
 import os
-import random
 import sys
 import time
 from datetime import date
@@ -35,25 +34,6 @@ def build(num_chars):
     prep = cr.cvp_prepare(R)
     return prep, time.time() - t0
 
-
-def validate(prep, num_chars, trials, seed=12345):
-    """Gate: every returned anchor must regenerate the sequence, and the true
-    anchor must always be found. Returns (found, not_found, false_pos, multi)."""
-    rng = random.Random(seed)
-    found = not_found = false_pos = multi = 0
-    for _ in range(trials):
-        u = rng.randrange(cr.SIZE)
-        chars = cr.generate_chars(u, num_chars)
-        res = cr.cvp_search(chars, prep)
-        if any(cr.generate_chars(x, num_chars) != chars for x in res):
-            false_pos += 1
-        if u in res:
-            found += 1
-        else:
-            not_found += 1
-        if len(res) > 1:
-            multi += 1
-    return found, not_found, false_pos, multi
 
 
 def js_ints(v):
@@ -139,8 +119,9 @@ def main():
     print("Generating %d-char CVP lattice (n=%d) via LLL..." % (args.chars, args.chars))
     prep, gen_secs = build(args.chars)
     print("  reduced in %.0fs; validating over %d seeds..." % (gen_secs, args.trials))
-    stats = validate(prep, args.chars, args.trials)
-    found, not_found, false_pos, multi = stats
+    v = cr.validate_cvp(prep, args.chars, args.trials)
+    found, not_found, false_pos, multi = v["found"], v["not_found"], v["false_pos"], v["multi"]
+    stats = (found, not_found, false_pos, multi)
     print("  self-test: %d/%d found, %d not-found, %d false-pos, %d multi-match"
           % (found, args.trials, not_found, false_pos, multi))
 

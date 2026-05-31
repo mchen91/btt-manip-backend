@@ -95,7 +95,8 @@ console.log('    ok');
 // ---- 4. Cross-impl vs charrss.py dump ----
 console.log('[4] cross-impl vs charrss.py...');
 try {
-  const rows = JSON.parse(readFileSync('/tmp/charrss_anchors.json', 'utf8'));
+  const anchorPath = new URL('../temp/charrss_anchors.json', import.meta.url).pathname;
+  const rows = JSON.parse(readFileSync(anchorPath, 'utf8'));
   let mism = 0;
   for (const row of rows) {
     const { anchors } = eng.search(row.chars);
@@ -105,7 +106,7 @@ try {
   }
   console.log(`    compared ${rows.length} sequences, ${mism} mismatches`);
 } catch (e) {
-  console.log(`    SKIPPED (no /tmp/charrss_anchors.json: ${e.message})`);
+  console.log(`    SKIPPED (no temp/charrss_anchors.json: ${e.message})`);
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);

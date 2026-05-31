@@ -10,12 +10,13 @@ import os
 import random
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 import charrss as cr
 
 NUM_CHARS = 9
-COUNT = int(sys.argv[1]) if len(sys.argv) > 1 else 60
-OUT = sys.argv[2] if len(sys.argv) > 2 else "/tmp/charrss_anchors.json"
+COUNT = int(sys.argv[1]) if len(sys.argv) > 1 else 200
+OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(PROJECT_ROOT, "temp", "charrss_anchors.json")
 
 
 def main():
@@ -38,6 +39,7 @@ def main():
         chars = cr.generate_chars(u, NUM_CHARS)
         rows.append({"u": u, "chars": chars, "anchors": cr.cvp_search(chars, prep)})
 
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         json.dump(rows, f)
     print(f"wrote {len(rows)} rows -> {OUT}")

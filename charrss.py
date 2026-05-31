@@ -16,6 +16,8 @@ Character-RSS specifics:
 Author: btt-manip-backend
 """
 
+import random as _random
+
 from fractions import Fraction as F
 
 MASK = (1 << 32) - 1
@@ -106,8 +108,7 @@ def _lll(B, delta=F(3, 4)):
 # ---------------------------------------------------------------------------
 # The shipped runtime algorithm (ported to charrss.js). Each character pins
 # s_k = a_k*u + b_k (mod 2^32) to a known interval; we recover the anchor u
-# with a single Babai nearest-plane closest-vector solve. No sum|c|<bound
-# budget applies, so 9 characters provide sufficient information. Validated
+# with a single Babai nearest-plane closest-vector solve. Validated
 # 5000/5000 at 9-10 chars with no brute-force residual (CHARRSS_9CHAR_FINDINGS.md).
 # ===========================================================================
 def cvp_basis(n):
@@ -231,7 +232,38 @@ def get_l_and_u_bounds(val, bound=BOUND):
         return lower_bound(val, bound), lower_bound(val + 1, bound) - 1
 
 
-# ---- reference generators for validation ----
+# ---- reference generators and shared validation ----
+def validate_cvp(prep, num_chars, trials, rng_seed=12345, extra_seeds=()):
+    """Run cvp_search over extra_seeds then trials random seeds and check
+    correctness. Returns a dict:
+      found, not_found, false_pos, multi  -- counts
+      failures                            -- list of human-readable failure strings
+    extra_seeds are tested first and tagged 'edge' in failure messages;
+    random seeds are tagged 'random'."""
+    rng = _random.Random(rng_seed)
+    found = not_found = false_pos = multi = 0
+    failures = []
+    extra_set = set(extra_seeds)
+    all_seeds = list(extra_seeds) + [rng.randrange(SIZE) for _ in range(trials)]
+    for u in all_seeds:
+        chars = generate_chars(u, num_chars)
+        res = cvp_search(chars, prep)
+        for x in res:
+            if generate_chars(x, num_chars) != chars:
+                false_pos += 1
+                failures.append(f"false positive: anchor {x} for seed {u}")
+        if len(res) > 1:
+            multi += 1
+        if u in res:
+            found += 1
+        else:
+            not_found += 1
+            tag = "edge" if u in extra_set else "random"
+            failures.append(f"not found ({tag}): seed {u}, chars={chars}, got={res}")
+    return {"found": found, "not_found": not_found, "false_pos": false_pos,
+            "multi": multi, "failures": failures}
+
+
 def generate_chars(u, length):
     """Characters produced starting from anchor seed u (u itself yields char0)."""
     out = [rand_int(u)]
