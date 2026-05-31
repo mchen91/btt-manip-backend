@@ -4,14 +4,14 @@
 // cvp_search; the offline LLL reduction lives in tools/gen_charrss_constants.py and
 // is baked into charrss_constants.js.
 //
-// Why this and not the older "clock" method: the clock method needs lattice vectors
-// with sum|c| < bound=25, which only exist at >=12 characters. This method has no
-// such budget and reconstructs the seed from 9 characters (validated 5000/5000, no
-// false positives -- see CHARRSS_9CHAR_FINDINGS.md).
+// Reconstructs the seed from 9 characters with no linear-combination budget
+// constraint: the HNP lattice has no sum|c|<bound requirement, so 9 chars provides
+// sufficient information (validated 5000/5000, no false positives --
+// see CHARRSS_9CHAR_FINDINGS.md).
 //
-// Replaces the server round-trip in script.js searchForNewSeed(). Given the first N
-// characters (ints 0..24), returns the current RNG seed -- next^(2N-1)(anchor),
-// identical to what rng.cpp locateCharSequence_ returned and to the successive-search
+// Implements searchForNewSeed() client-side. Given the first N characters
+// (ints 0..24), returns the current RNG seed -- next^(2N-1)(anchor), identical
+// to what rng.cpp locateCharSequence_ returned and to the successive-search
 // endSeed -- so processSeed() is unchanged.
 //
 // NUMERICAL STRATEGY: correctness comes from regenerating the character sequence and

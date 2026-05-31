@@ -4,14 +4,13 @@ gen_charrss_constants.py -- OFFLINE generator for the baked character-RSS tables
 
 Emits the CVP (closest-vector) reconstruction tables used by charrss.js: an
 LLL-reduced lattice basis plus its float Gram-Schmidt data. The LLL reduction is
-slow + exact-rational and must NEVER run in the browser, exactly as tagrss.py
-ships a fixed hand-tuned table. This script runs the reduction once, gates it
-behind a correctness self-test (Schnorr-Euchner enumeration over many random
-seeds), and writes an ES module the runtime imports.
+slow + exact-rational and must NEVER run in the browser; this script runs it once,
+gates it behind a correctness self-test (Schnorr-Euchner enumeration over many
+random seeds), and writes an ES module the runtime imports.
 
-The runtime algorithm is a direct truncated-LCG / Hidden-Number-Problem solve and
-works at 9 characters -- where the older "clock" method was infeasible (the
-sum|c| < bound=25 budget). See CHARRSS_9CHAR_FINDINGS.md.
+The runtime algorithm is a direct truncated-LCG / Hidden-Number-Problem solve
+that reconstructs the seed from 9 characters with no brute-force residual.
+See CHARRSS_9CHAR_FINDINGS.md.
 
 Usage:
     python3 tools/gen_charrss_constants.py [--chars 9] [--trials 5000] [--out PATH]

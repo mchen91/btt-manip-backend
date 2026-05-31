@@ -93,9 +93,9 @@ const KONAMI = [
 
 
 /* Search mode (first search).
- *   default  -> client-side character RSS (CVP) in a Web Worker (no server round-trip)
- *   ?search=server -> legacy fetch('/seed') backend (fallback during transition)
- *   ?search=shadow -> run BOTH, console.warn on any disagreement (M5 canary)
+ *   default         -> client-side character RSS (CVP) in a Web Worker (no server round-trip)
+ *   ?search=server  -> server-side fallback (for debugging / comparison)
+ *   ?search=shadow  -> run BOTH, console.warn on any disagreement (shadow soak)
  * The successive (>=4 char) search is always client-side and unaffected.
  */
 const SEARCH_MODE = new URLSearchParams(window.location.search).get('search');

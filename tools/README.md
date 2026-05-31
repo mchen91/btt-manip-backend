@@ -6,8 +6,7 @@ produce and verify them. Nothing here runs in the browser or per-search.
 
 The shipped runtime is a **direct CVP / Hidden-Number-Problem seed reconstruction**
 that resolves the seed from **9 characters** (validated 5000/5000, zero false
-positives). See `../CHARRSS_9CHAR_FINDINGS.md`. (The older "clock" method — needing
-≥12 characters — remains in `charrss.py` as an offline oracle / history only.)
+positives). See `../CHARRSS_9CHAR_FINDINGS.md`.
 
 ## Regenerate the baked constants
 

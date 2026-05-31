@@ -4,7 +4,7 @@
 // Regenerate with: python3 tools/gen_charrss_constants.py --chars 9
 //
 // Provenance:
-//   generated:    2026-05-30
+//   generated:    2026-05-31
 //   first-search: 9 characters (lattice dimension n = 9)
 //   gen time:     1s (LLL, exact rational; offline only)
 //   self-test:    5000/5000 found, 0 not-found, 0 false-pos, 0 multi-match
