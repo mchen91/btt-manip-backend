@@ -1,0 +1,4 @@
+# Dev/validation-only dependency. pybind11 compiles the C++ brute-force oracle
+# (rng.cpp) used by tools/validate_cpp_oracle.py to cross-check the client-side CVP
+# seed reconstruction. The shipped static site has no Python runtime dependency.
+pybind11==2.13.6

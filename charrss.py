@@ -11,7 +11,7 @@ Character-RSS specifics:
     roll. So consecutive characters are two LCG steps apart; the relevant advance
     map is next2 = next ∘ next (multiplier A², not A).
   - bound = 25 (characters), not 145 (tags). Each character pins the anchor to a
-    1/25 interval of the 32-bit seed space (see CHARRSS_9CHAR_FINDINGS.md §1–§2).
+    1/25 interval of the 32-bit seed space (see RSS_IMPLEMENTATION.md §1–§2).
 
 Author: btt-manip-backend
 """
@@ -109,7 +109,7 @@ def _lll(B, delta=F(3, 4)):
 # The shipped runtime algorithm (ported to charrss.js). Each character pins
 # s_k = a_k*u + b_k (mod 2^32) to a known interval; we recover the anchor u
 # with a single Babai nearest-plane closest-vector solve. Validated
-# 5000/5000 at 9-10 chars with no brute-force residual (CHARRSS_9CHAR_FINDINGS.md).
+# 5000/5000 at 9-10 chars with no brute-force residual (RSS_IMPLEMENTATION.md).
 # ===========================================================================
 def cvp_basis(n):
     """LLL-reduced basis R (n x n) of the HNP lattice for an n-character search:

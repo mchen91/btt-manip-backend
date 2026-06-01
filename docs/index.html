@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename = 'css/style.css') }}"/>
-    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" type="text/css" href="css/style.css"/>
+    <link rel="shortcut icon" href="favicon.ico">
     <title>SSBM RNG Manip</title>
 </head>
 <body>
@@ -17,29 +17,29 @@
         <div id="item-selector">
             <label>
                 <input type="radio" name="item" value="beamsword" checked>
-                <img src="/static/img/beamsword.png" title="beamsword">
+                <img src="img/beamsword.png" title="beamsword">
             </label>
             
             <label>
                 <input type="radio" name="item" value="bomb">
-                <img src="/static/img/bobomb.png" title="bomb">
+                <img src="img/bobomb.png" title="bomb">
             </label>
 
             <label>
                 <input type="radio" name="item" value="saturn">
-                <img src="/static/img/saturn.png" title="saturn">
+                <img src="img/saturn.png" title="saturn">
             </label>
             <label>
                 <input type="radio" name="item" value="hrc_stitch">
-                <img src="/static/img/stitch_and_bat.png" title="triple stitch">
+                <img src="img/stitch_and_bat.png" title="triple stitch">
             </label>
             <label id="secret">
                 <input type="radio" name="item" value="targetprey">
-                <img src="/static/img/targetprey.png" title="targetprey" class="full-image">
+                <img src="img/targetprey.png" title="targetprey" class="full-image">
             </label>
             <label>
                 <input type="radio" name="item" value="happysquare">
-                <img src="/static/img/happysquare.png" title="happysquare" class="full-image square-image">
+                <img src="img/happysquare.png" title="happysquare" class="full-image square-image">
             </label>
         </div>
         <p id="search-count-label">Search Count: <span id="search-count">0</span></p>
@@ -91,5 +91,5 @@
     </div>
 </body>
 
-<script src="{{url_for('static', filename='js/script.js')}}" type="module"></script>
+<script src="js/script.js" type="module"></script>
 </html>

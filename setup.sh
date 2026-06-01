@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+#
+# OPTIONAL: builds the C++ brute-force oracle (rng.cpp) used only to cross-validate the
+# client-side CVP seed reconstruction (tools/validate_cpp_oracle.py). The static site
+# itself needs none of this -- just serve docs/ (see run.sh). The pure-Python and JS
+# validations (tools/validate_charrss.py, charrss_difftest.mjs) also need no setup.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,11 +47,11 @@ fi
 # ── Dependencies ───────────────────────────────────────────────────────────────
 PYTHON="$VENV_DIR/bin/python3"
 
-info "Installing/updating dependencies from requirements.txt"
+info "Installing/updating dependencies from requirements-dev.txt"
 # Bootstrap pip via ensurepip in case the venv was created without it (common on Debian/Ubuntu)
 "$PYTHON" -m ensurepip --upgrade 2>/dev/null || true
 "$PYTHON" -m pip install --upgrade pip --quiet
-"$PYTHON" -m pip install -r requirements.txt --quiet
+"$PYTHON" -m pip install -r requirements-dev.txt --quiet
 ok "Dependencies installed"
 
 # ── C++ compilation ────────────────────────────────────────────────────────────
@@ -79,5 +84,7 @@ fi
 
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
-echo "Setup complete. Start the app with:"
-echo "  ./run.sh"
+echo "C++ oracle ready. Run the full validation suite (incl. the oracle cross-check) with:"
+echo "  ./run_all_tests.sh"
+echo ""
+echo "To preview the static site locally, run:  ./run.sh"

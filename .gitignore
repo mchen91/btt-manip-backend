@@ -7,3 +7,4 @@ venv/
 .venv/
 *.so
 temp/
+.claude/

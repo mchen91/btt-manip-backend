@@ -1,12 +1,12 @@
 # Character-RSS tooling
 
 Offline generation + tests for the client-side character Reverse Seed Search
-(`browser/static/js/charrss.js`). The runtime ships baked constants; these scripts
+(`docs/js/charrss.js`). The runtime ships baked constants; these scripts
 produce and verify them. Nothing here runs in the browser or per-search.
 
 The shipped runtime is a **direct CVP / Hidden-Number-Problem seed reconstruction**
 that resolves the seed from **9 characters** (validated 5000/5000, zero false
-positives). See `../CHARRSS_9CHAR_FINDINGS.md`.
+positives). See [`../RSS_IMPLEMENTATION.md`](../RSS_IMPLEMENTATION.md).
 
 ## Regenerate the baked constants
 
@@ -18,7 +18,7 @@ python3 tools/gen_charrss_constants.py --chars 9 --trials 5000
 Builds the LLL-reduced lattice basis + float Gram-Schmidt data (LLL is exact-rational
 and ~1 s), runs a self-test gate (Schnorr-Euchner enumeration over the trials; must be
 100% found, zero not-found, zero false positives), and only then writes
-`browser/static/js/charrss_constants.js` with a provenance header.
+`docs/js/charrss_constants.js` with a provenance header.
 
 ## High-volume Python RSS validation
 
@@ -58,8 +58,8 @@ verifying `api.findSeed(chars) == next^17(min(cvp_search(chars)))` for every tes
 Expect `C++ oracle: OK`.
 
 ## Files
-- `gen_charrss_constants.py` — offline basis generator + gate (committed tool).
-- `validate_charrss.py` — high-volume standalone Python RSS validation.
-- `validate_cpp_oracle.py` — Python ↔ C++ brute-force oracle cross-validation.
-- `charrss_difftest.mjs` — Node differential test for `charrss.js`.
-- `_dump_anchors.py` — dumps `charrss.py` `cvp_search` reference anchors to `temp/` for cross-impl.
+- [`gen_charrss_constants.py`](gen_charrss_constants.py) — offline basis generator + gate (committed tool).
+- [`validate_charrss.py`](validate_charrss.py) — high-volume standalone Python RSS validation.
+- [`validate_cpp_oracle.py`](validate_cpp_oracle.py) — Python ↔ C++ brute-force oracle cross-validation.
+- [`charrss_difftest.mjs`](charrss_difftest.mjs) — Node differential test for [`charrss.js`](../docs/js/charrss.js).
+- [`_dump_anchors.py`](_dump_anchors.py) — dumps [`charrss.py`](../charrss.py) `cvp_search` reference anchors to `temp/` for cross-impl.

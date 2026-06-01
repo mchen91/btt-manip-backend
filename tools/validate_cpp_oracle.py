@@ -1,7 +1,8 @@
 """Python <=> C++ oracle cross-validation for charrss.py.
 
 Compares cvp_search (Python CVP reconstruction) against rng.locateCharSequence
-(C++ brute-force oracle) via api.findSeed, verifying they agree on every test seed.
+(C++ brute-force oracle) via cpp_oracle.find_seed, verifying they agree on every
+test seed.
 
 Requires the compiled rng module (.so) to be present and importable.
 
@@ -20,9 +21,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    import api
+    from cpp_oracle import find_seed
 except ImportError as e:
-    print(f"SKIP: could not import api (rng module unavailable): {e}")
+    print(f"SKIP: could not import cpp_oracle (rng module unavailable): {e}")
     sys.exit(0)
 
 import charrss as cr
@@ -68,7 +69,7 @@ def main():
         py_anchors = cr.cvp_search(chars, prep)
         py_anchor = min(py_anchors)
         expected = adv(py_anchor, 2 * NUM_CHARS - 1)
-        cpp_result = api.findSeed(chars)
+        cpp_result = find_seed(chars)
 
         if cpp_result == expected:
             matched += 1

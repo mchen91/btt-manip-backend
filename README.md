@@ -39,20 +39,34 @@ For a good (very long) example of what it looks like to manip, see [this video](
 
 ***Note*: It's possible for your game's seed and the application's internal seed to become desynced for a number of reasons. If you feel this may have happened or keep missing pulls, you can always click the "reset" button to re-locate the seed with a new 9-character sequence
 
-# Building Locally
-This project uses Flask and Pybind, and can be run locally if you have python installed.
+# Running Locally
+This is a fully static site — all seed location runs client-side in the browser (a
+direct CVP / Hidden-Number-Problem reconstruction; see [`RSS_IMPLEMENTATION.md`](RSS_IMPLEMENTATION.md)).
+There is no server and no Python runtime dependency.
 
-First clone the repository and install the necessary dependencies:
+The published site lives in [`docs/`](docs/). To preview it locally:
 
+```bash
+./run.sh                 # serves docs/ at http://localhost:8000/
+# or directly:
+python3 -m http.server 8000 --directory docs
+```
 
-`python3 -m pip install -r requirements.txt`
+# Deploying
+Enable **GitHub Pages** for this repository with the source set to the `/docs` folder on
+the default branch. Asset paths are relative, so the site works correctly under the
+`https://<user>.github.io/<repo>/` subpath. (`docs/.nojekyll` disables Jekyll so files
+are served verbatim.)
 
-Then, build the seed-locating library by following the [build instructions for Pybind.](https://pybind11.readthedocs.io/en/stable/compiling.html?highlight=dynamic_lookup#building-manually)
+# Validation tooling
+The C++ implementation (`rng.cpp`) is retained only as an independent brute-force oracle
+to cross-check the client-side algorithm. The validation suite (pure-Python RSS, the JS
+differential test, and the optional C++ oracle comparison) lives in [`tools/`](tools/):
 
-### For Linux/WSL
-`c++ -O3 -Wall -shared -std=c++11 -fPIC $(python3 -m pybind11 --includes) rng.cpp -o rng$(python3-config --extension-suffix)`
+```bash
+./setup.sh           # OPTIONAL: builds the C++ oracle (venv + pybind11 + compile rng.cpp)
+./run_all_tests.sh   # runs every validation suite
+```
 
-### For MacOS
-`c++ -O3 -Wall -shared -std=c++11 -undefined dynamic_lookup $(python3 -m pybind11 --includes) rng.cpp -o rng$(python3-config --extension-suffix)`
-
-You can then run the project with `python3 app.py` and visit it at `http://localhost:5000`
+See [`tools/README.md`](tools/README.md) for details on each tool. Only the C++ oracle
+step needs `./setup.sh`; the Python and JS validations run with no setup.

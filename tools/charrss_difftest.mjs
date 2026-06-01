@@ -11,8 +11,8 @@
 // Run:  node tools/charrss_difftest.mjs [numRandom]
 
 import { readFileSync } from 'node:fs';
-import { rngAdv, rngInt } from '../browser/static/js/util.js';
-import { searchForCharSeed, engineFor, next2, getLU } from '../browser/static/js/charrss.js';
+import { rngAdv, rngInt } from '../docs/js/util.js';
+import { searchForCharSeed, engineFor, next2, getLU } from '../docs/js/charrss.js';
 
 const N = 9;                  // first-search length
 let failures = 0;

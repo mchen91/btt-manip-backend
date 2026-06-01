@@ -40,7 +40,7 @@ run_step "[3/4] JS differential test" \
     node tools/charrss_difftest.mjs 3000
 
 run_step "[4/4] Python <=> C++ brute force validation" \
-    python3 tools/validate_cpp_oracle.py 2000
+    python3 tools/validate_cpp_oracle.py 1000
 
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

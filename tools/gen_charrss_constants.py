@@ -10,12 +10,12 @@ random seeds), and writes an ES module the runtime imports.
 
 The runtime algorithm is a direct truncated-LCG / Hidden-Number-Problem solve
 that reconstructs the seed from 9 characters with no brute-force residual.
-See CHARRSS_9CHAR_FINDINGS.md.
+See RSS_IMPLEMENTATION.md.
 
 Usage:
     python3 tools/gen_charrss_constants.py [--chars 9] [--trials 5000] [--out PATH]
 
-Default output: browser/static/js/charrss_constants.js
+Default output: docs/js/charrss_constants.js
 """
 import argparse
 import os
@@ -114,7 +114,7 @@ def main():
 
     out = args.out or os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "browser", "static", "js", "charrss_constants.js")
+        "docs", "js", "charrss_constants.js")
 
     print("Generating %d-char CVP lattice (n=%d) via LLL..." % (args.chars, args.chars))
     prep, gen_secs = build(args.chars)

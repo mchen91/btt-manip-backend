@@ -5,65 +5,65 @@ import { EVENT_SEARCH_MAX_ITERATIONS, searchForEvent, buildCharacterEvents, buil
 console.log('Version 1.0.1');
 /* Constants */
 const STOCK_ICONS = [
-	"/static/img/DrMarioBlack.png",
-	"/static/img/MarioOriginal.png",
-	"/static/img/LuigiOriginal.png",
-	"/static/img/BowserOriginal.png",
-	"/static/img/PeachOriginal.png",
-	"/static/img/YoshiOriginal.png",
-	"/static/img/DonkeyKongOriginal.png",
-	"/static/img/CaptainFalconOriginal.png",
-	"/static/img/GanondorfOriginal.png",
-	"/static/img/FalcoOriginal.png",
-	"/static/img/FoxOriginal.png",
-	"/static/img/NessOriginal.png",
-	"/static/img/IceClimbersOriginal.png",
-	"/static/img/KirbyOriginal.png",
-	"/static/img/SamusOriginal.png",
-	"/static/img/ZeldaOriginal.png",
-	"/static/img/LinkGreen.png",
-	"/static/img/YoungLinkGreen.png",
-	"/static/img/PichuOriginal.png",
-	"/static/img/PikachuOriginal.png",
-	"/static/img/JigglyPuffOriginal.png",
-	"/static/img/MewtwoOriginal.png",
-	"/static/img/Game & Watch Original.png",
-	"/static/img/MarthOriginal.png",
-	"/static/img/RoyOriginal.png",
+	"img/DrMarioBlack.png",
+	"img/MarioOriginal.png",
+	"img/LuigiOriginal.png",
+	"img/BowserOriginal.png",
+	"img/PeachOriginal.png",
+	"img/YoshiOriginal.png",
+	"img/DonkeyKongOriginal.png",
+	"img/CaptainFalconOriginal.png",
+	"img/GanondorfOriginal.png",
+	"img/FalcoOriginal.png",
+	"img/FoxOriginal.png",
+	"img/NessOriginal.png",
+	"img/IceClimbersOriginal.png",
+	"img/KirbyOriginal.png",
+	"img/SamusOriginal.png",
+	"img/ZeldaOriginal.png",
+	"img/LinkGreen.png",
+	"img/YoungLinkGreen.png",
+	"img/PichuOriginal.png",
+	"img/PikachuOriginal.png",
+	"img/JigglyPuffOriginal.png",
+	"img/MewtwoOriginal.png",
+	"img/Game & Watch Original.png",
+	"img/MarthOriginal.png",
+	"img/RoyOriginal.png",
 ];
 
 const CSS_ICONS = [
   [
-    "/static/img/css_doc.png",
-    "/static/img/css_mario.png",
-    "/static/img/css_luigi.png",
-    "/static/img/css_bowser.png",
-    "/static/img/css_peach.png",
-    "/static/img/css_yoshi.png",
-    "/static/img/css_dk.png",
-    "/static/img/css_falcon.png",
-    "/static/img/css_ganon.png",
+    "img/css_doc.png",
+    "img/css_mario.png",
+    "img/css_luigi.png",
+    "img/css_bowser.png",
+    "img/css_peach.png",
+    "img/css_yoshi.png",
+    "img/css_dk.png",
+    "img/css_falcon.png",
+    "img/css_ganon.png",
   ],
   [
-    "/static/img/css_falco.png",
-    "/static/img/css_fox.png",
-    "/static/img/css_ness.png",
-    "/static/img/css_ICs.png",
-    "/static/img/css_kirby.png",
-    "/static/img/css_samus.png",
-    "/static/img/css_zelda.png",
-    "/static/img/css_link.png",
-    "/static/img/css_yl.png",
+    "img/css_falco.png",
+    "img/css_fox.png",
+    "img/css_ness.png",
+    "img/css_ICs.png",
+    "img/css_kirby.png",
+    "img/css_samus.png",
+    "img/css_zelda.png",
+    "img/css_link.png",
+    "img/css_yl.png",
   ],
   [
     "",
-    "../..//static/img/css_pichu.png",
-    "../..//static/img/css_pika.png",
-    "/static/img/css_puff.png",
-    "/static/img/css_m2.png",
-    "/static/img/css_gnw.png",
-    "/static/img/css_marth.png",
-    "/static/img/css_roy.png",
+    "img/css_pichu.png",
+    "img/css_pika.png",
+    "img/css_puff.png",
+    "img/css_m2.png",
+    "img/css_gnw.png",
+    "img/css_marth.png",
+    "img/css_roy.png",
     "",
   ],
 ];
@@ -71,7 +71,7 @@ const CSS_ICONS = [
 // First search uses the client-side character RSS (charrss.js): a direct CVP /
 // Hidden-Number-Problem seed reconstruction that resolves the seed from 9 characters
 // (validated 5000/5000, no false positives) -- see charrss_constants.js provenance /
-// CHARRSS_9CHAR_FINDINGS.md.
+// RSS_IMPLEMENTATION.md.
 const FIRST_SEARCH_MAX_CHARS = 9;
 const FIRST_SEARCH_MIN_CHARS = 9;
 const SUCCESSIVE_SEARCH_MAX_CHARS = 9;
@@ -91,14 +91,6 @@ const KONAMI = [
 ];
 
 
-
-/* Search mode (first search).
- *   default         -> client-side character RSS (CVP) in a Web Worker (no server round-trip)
- *   ?search=server  -> server-side fallback (for debugging / comparison)
- *   ?search=shadow  -> run BOTH, console.warn on any disagreement (shadow soak)
- * The successive (>=4 char) search is always client-side and unaffected.
- */
-const SEARCH_MODE = new URLSearchParams(window.location.search).get('search');
 
 /* State Variables */
 let charSeq = [];
@@ -461,31 +453,13 @@ function searchForSeed() {
 }
 
 
-// Legacy server search: GET /seed?seq[]=... -> Promise<seed>.
-function serverSearchForSeed(seq) {
-  let url = '/seed';
-  let arraySpecifier = 'seq[]';
-  for (let i = 0; i < seq.length; i++) {
-    url = url + (i == 0 ? '?' : '&') + arraySpecifier + '=' + seq[i];
-  }
-
-  return fetch(url).then(function (response) {
-    if (!response.ok) {
-      throw new Error(`Status Code: ${response.status} `);
-    }
-    return response.json();
-  }).then(function (result) {
-    return result.seed;
-  });
-}
-
 // Client-side linear RSS -> Promise<seed>. Runs in a module Web Worker so the
 // residual search never blocks the UI; falls back to a lazy main-thread import
 // where workers are unavailable (e.g. older environments / tests).
 function clientSearchForSeed(seq) {
   if (typeof Worker !== 'undefined') {
     return new Promise((resolve, reject) => {
-      const worker = new Worker('/static/js/charrss_worker.js', { type: 'module' });
+      const worker = new Worker(new URL('./charrss_worker.js', import.meta.url), { type: 'module' });
       worker.onmessage = (e) => {
         worker.terminate();
         if (e.data && e.data.error) reject(new Error(e.data.error));
@@ -535,30 +509,7 @@ function searchForNewSeed() {
   };
   const done = () => { document.getElementById('search-button').disabled = false; };
 
-  // Legacy server path (explicit opt-in).
-  if (SEARCH_MODE === 'server') {
-    serverSearchForSeed(seq).then(handleSeed).catch(handleError).finally(done);
-    return;
-  }
-
-  const clientPromise = clientSearchForSeed(seq);
-
-  // Canary: run both and warn on disagreement, but use the client result.
-  if (SEARCH_MODE === 'shadow') {
-    Promise.all([clientPromise, serverSearchForSeed(seq).catch((e) => {
-      console.warn('shadow: server search failed', e);
-      return undefined;
-    })]).then(([clientSeed, serverSeed]) => {
-      if (serverSeed !== undefined && clientSeed !== serverSeed) {
-        console.warn(`shadow MISMATCH: client=${clientSeed} server=${serverSeed} seq=[${seq}]`);
-      }
-      handleSeed(clientSeed);
-    }).catch(handleError).finally(done);
-    return;
-  }
-
-  // Default: client-side only (no server).
-  clientPromise.then(handleSeed).catch(handleError).finally(done);
+  clientSearchForSeed(seq).then(handleSeed).catch(handleError).finally(done);
 }
 
 

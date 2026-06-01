@@ -7,7 +7,7 @@
 // Reconstructs the seed from 9 characters with no linear-combination budget
 // constraint: the HNP lattice has no sum|c|<bound requirement, so 9 chars provides
 // sufficient information (validated 5000/5000, no false positives --
-// see CHARRSS_9CHAR_FINDINGS.md).
+// see RSS_IMPLEMENTATION.md).
 //
 // Implements searchForNewSeed() client-side. Given the first N characters
 // (ints 0..24), returns the current RNG seed -- next^(2N-1)(anchor), identical
