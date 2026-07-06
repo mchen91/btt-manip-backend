@@ -1,6 +1,6 @@
 import { findSeedDifference, formatHex, isInt, isHex, rngAdv, rngInt } from './util.js';
 import { MANIP_ACTIONS, PORT_ADVANCE_THRESHOLD, STAGE_LOAD_ACTION, buildActionSequence } from './rolls.js';
-import { EVENT_SEARCH_MAX_ITERATIONS, searchForEvent, buildCharacterEvents, buildPullEventList } from './event.js';
+import { EVENT_SEARCH_MAX_ITERATIONS, calculateSuccessRate, searchForEvent, buildCharacterEvents, buildPullEventList } from './event.js';
 
 console.log('Version 1.0.1');
 /* Constants */
@@ -322,10 +322,38 @@ function displaySearchResult(parent, searchResult) {
   parent.appendChild(document.createElement('br'));
   parent.appendChild(document.createTextNode('Interval: ' + searchResult.interval));
 
+  // Display range info if present (e.g., for targetprey/happysquare sword position)
+  if (searchResult.rangeInfo) {
+    const { rangeOffset, rangeSize } = searchResult.rangeInfo;
+    const center = Math.floor(rangeSize / 2);
+    const distanceFromCenter = rangeOffset - center;
+    const sign = distanceFromCenter >= 0 ? '+' : '';
+
+    const successRate = calculateSuccessRate(rangeOffset, rangeSize);
+    const successPercent = (successRate * 100).toFixed(2);
+    const expectedRuns = Math.round(1 / successRate);
+
+    const selectedItem = document.querySelector('input[name="item"]:checked')?.value;
+
+    parent.appendChild(document.createElement('br'));
+    if (selectedItem === 'targetprey') {
+      // Delay is 1899 (see buildPullEventList); + rangeOffset gives total iterations
+      const iterations = 1899 + rangeOffset;
+      parent.appendChild(document.createTextNode(`Iterations between bomb and sword pull: ${iterations}`));
+    } else {
+      parent.appendChild(document.createTextNode(`Sword position: ${rangeOffset}/${rangeSize} (${sign}${distanceFromCenter} from center)`));
+    }
+    parent.appendChild(document.createElement('br'));
+    parent.appendChild(document.createTextNode(`Success rate: ${successPercent}% (~1 in ${expectedRuns} runs)`));
+  }
+
   // Log for funsies
   console.log('Event Seed: 0x' + formatHex(searchResult.eventSeed));
   console.log('End Seed: 0x' + formatHex(searchResult.endSeed));
   console.log('Interval: ' + searchResult.interval);
+  if (searchResult.rangeInfo) {
+    console.log('Range Info:', searchResult.rangeInfo);
+  }
 }
 
 function displayPortAdvance(rolls) {

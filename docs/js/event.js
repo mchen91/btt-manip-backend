@@ -4,7 +4,7 @@ import { rngAdv, rngInt, findSeedDifference } from './util.js'
 class RngEvent {
   constructor() {}
   resultsFromSeed(seed) {
-    return [true, seed];
+    return [true, seed, null];
   }
 }
 
@@ -21,7 +21,7 @@ class DelayEvent extends RngEvent {
       seed = rngAdv(seed);
     }
 
-    return [true, seed];
+    return [true, seed, null];
   }
 }
 
@@ -43,7 +43,7 @@ class IntEvent extends RngEvent {
     let result = rngInt(seed, this.max);
     let success = (result >= this.low && result <= this.high);
 
-    return [success, seed];
+    return [success, seed, null];
   }
 }
 
@@ -62,13 +62,13 @@ class RangeEvent extends RngEvent {
       const [success, resultSeed] = seedYieldsEvents(seed, this.events);
 
       if (success) {
-        return [success, resultSeed];
+        return [success, resultSeed, { rangeOffset: i, rangeSize: this.range }];
       } else {
         seed = rngAdv(seed);
       }
     }
 
-    return [false, seed]; // I think it's ok to return the advanced seed here?
+    return [false, seed, null]; // I think it's ok to return the advanced seed here?
   }
 }
 
@@ -82,32 +82,52 @@ class OptionEvent extends RngEvent {
 
   resultsFromSeed(seed) {
     for (let i = 0; i < this.eventSequences.length; i++) {
-      let [success, resultSeed] = seedYieldsEvents(seed, this.eventSequences[i]);
+      let [success, resultSeed, metadata] = seedYieldsEvents(seed, this.eventSequences[i]);
 
       if (success) {
-        return [true, resultSeed];
+        return [true, resultSeed, metadata];
       }
     }
 
-    return [false, seed];
+    return [false, seed, null];
   }
 }
 
 const EVENT_SEARCH_MAX_ITERATIONS = 1000000; // 0x100000000 for full range
 
+// Standard deviation of run RNG consumption (measured from trials), used to
+// estimate how likely a given sword-pull offset is to land within its window.
+const RUN_SIGMA = 36;
+
+// Calculate success probability given sword position in range
+// Returns probability as a decimal (e.g., 0.01 = 1%)
+const calculateSuccessRate = (rangeOffset, rangeSize) => {
+  const center = rangeSize / 2;
+  const distanceFromCenter = rangeOffset - center;
+
+  // P(hit) = φ(d/σ) / σ where φ is standard normal PDF
+  // φ(x) = (1/√(2π)) × e^(-x²/2)
+  const x = distanceFromCenter / RUN_SIGMA;
+  const phi = Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+
+  return phi / RUN_SIGMA;
+};
 
 const seedYieldsEvents = (seed, events) => {
+  let metadata = null;
   for (let i = 0; i < events.length; i++) {
-    let [success, resultSeed] = events[i].resultsFromSeed(seed);
+    let [success, resultSeed, eventMeta] = events[i].resultsFromSeed(seed);
+
+    if (eventMeta) metadata = eventMeta; // Capture range metadata
 
     if (!success) {
-      return [false, resultSeed];
+      return [false, resultSeed, null];
     } else {
       seed = resultSeed;
     }
   }
 
-  return [true, seed];
+  return [true, seed, metadata];
 }
 
 const searchForEvent = (events, startSeed) => {
@@ -116,7 +136,7 @@ const searchForEvent = (events, startSeed) => {
   for (let i = 0; i < EVENT_SEARCH_MAX_ITERATIONS; i++) {
     let trialSeed = seed;
 
-    let [success, resultSeed] = seedYieldsEvents(trialSeed, events);
+    let [success, resultSeed, metadata] = seedYieldsEvents(trialSeed, events);
 
     if (success) {
       return {
@@ -124,7 +144,8 @@ const searchForEvent = (events, startSeed) => {
         eventSeed: seed,
         endSeed: resultSeed,
         interval: findSeedDifference(startSeed, seed),
-        success: success
+        success: success,
+        rangeInfo: metadata, // { rangeOffset, rangeSize } or null
       };
     }
 
@@ -132,7 +153,8 @@ const searchForEvent = (events, startSeed) => {
   }
 
   return {
-    success: false
+    success: false,
+    rangeInfo: null,
   }
 }
 
@@ -214,10 +236,11 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
     // Bomb pull
     events.push(new IntEvent(128, 0, 0));
     events.push(new IntEvent(6, 0, 1));
-    // Delay for run actions
-    events.push(new DelayEvent(2246));
+    // Delay for run actions (measured from trial runs, see:
+    // https://docs.google.com/spreadsheets/d/1QAKLVQsf37u1Zyv2YzM3rSf8r2cbIqxUoQcaf247aZ8/edit?usp=sharing)
+    events.push(new DelayEvent(1899));
     // Finally, add a range event targeting a sword pull, covering 4 standard deviations in run variance
-    events.push(new RangeEvent(160, [
+    events.push(new RangeEvent(136, [
       new IntEvent(128, 0, 0),
       new IntEvent(6, 5, 5),
     ]));
@@ -260,4 +283,12 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
 
 
 
-export { EVENT_SEARCH_MAX_ITERATIONS, seedYieldsEvents, searchForEvent, buildCharacterEvents, buildPullEventList }
+export {
+  EVENT_SEARCH_MAX_ITERATIONS,
+  RUN_SIGMA,
+  calculateSuccessRate,
+  seedYieldsEvents,
+  searchForEvent,
+  buildCharacterEvents,
+  buildPullEventList,
+}
