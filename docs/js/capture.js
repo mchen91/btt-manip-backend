@@ -26,7 +26,7 @@ const CHARACTER_NAMES = [
   "Captain Falcon", "Ganondorf",
   "Falco", "Fox", "Ness", "Ice Climbers", "Kirby", "Samus", "Zelda",
   "Link", "Young Link",
-  "Pichu", "Pikachu", "Jigglypuff", "Mewtwo", "Mr. Game & Watch",
+  "Pichu", "Pikachu", "Jigglypuff", "Mewtwo", "Mr. G&W",
   "Marth", "Roy",
 ];
 
@@ -473,7 +473,6 @@ function classifyCurrent() {
   const keys = Object.keys(state.templateFeatures);
   if (keys.length === 0) {
     els.matchLabel.textContent = "No templates captured yet";
-    els.addDetectedBtn.disabled = true;
     state.lastMatch = null;
     return;
   }
@@ -499,7 +498,6 @@ function classifyCurrent() {
   const margin = Math.round((best.similarity - secondSim) * 100);
   els.matchLabel.textContent =
     `${labelForKey(best.key)}  (${conf}%${Number.isFinite(margin) ? `, +${margin} vs next` : ""})`;
-  els.addDetectedBtn.disabled = isEmpty; // never manually add the empty card
 }
 
 /* ------------------------------------------------------------------ */
@@ -750,19 +748,6 @@ function finalizeCollection() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Manual add (bridge to the real app). AUTO-ENTRY seam.              */
-/* ------------------------------------------------------------------ */
-
-function addDetected() {
-  if (!state.lastMatch || state.lastMatch.isEmpty) return;
-  // Manual fallback / override. The automatic path (updateAutoEntry) makes
-  // this same window.addCharToSeq() call, gated by the roll event +
-  // confidence + cooldown.
-  window.addCharToSeq(state.lastMatch.index);
-  setStatus(`Added ${CHARACTER_NAMES[state.lastMatch.index]} to the sequence.`);
-}
-
-/* ------------------------------------------------------------------ */
 /* Status helper + init                                               */
 /* ------------------------------------------------------------------ */
 
@@ -821,7 +806,6 @@ function init() {
     charSelect: document.getElementById("capture-char"),
     captureTemplateBtn: document.getElementById("capture-template"),
     matchLabel: document.getElementById("capture-match"),
-    addDetectedBtn: document.getElementById("capture-add"),
     autoEntryCheckbox: document.getElementById("capture-auto-entry"),
     autoSearchCheckbox: document.getElementById("capture-auto-search"),
     autoStatus: document.getElementById("capture-auto-status"),
@@ -843,7 +827,6 @@ function init() {
   els.calibrateBtn.addEventListener("click", beginCalibration);
   els.rawCanvas.addEventListener("click", onRawClick);
   els.captureTemplateBtn.addEventListener("click", captureTemplate);
-  els.addDetectedBtn.addEventListener("click", addDetected);
   els.autoEntryCheckbox.addEventListener("change", onAutoEntryToggle);
   els.autoSearchCheckbox.addEventListener("change", onAutoSearchToggle);
   watchAppState();

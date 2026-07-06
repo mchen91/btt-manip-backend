@@ -62,7 +62,7 @@
     <hr>
     <div id="capture-panel">
         <button id="capture-toggle" type="button">📷 Live Capture (beta) ▾</button>
-        <div id="capture-body" class="none">
+        <div id="capture-body">
             <div id="capture-controls">
                 <select id="capture-device" title="Video source"></select>
                 <button id="capture-start" type="button">Start Camera</button>
@@ -83,7 +83,6 @@
             </div>
             <div id="capture-classify">
                 <label>Detected: <strong id="capture-match">—</strong></label>
-                <button id="capture-add" type="button" disabled>Add detected → sequence</button>
                 <span class="capture-sep">|</span>
                 <label>Teach template:
                     <select id="capture-char"></select>
@@ -98,8 +97,8 @@
                     <input type="checkbox" id="capture-auto-search"> Auto-search at quota
                 </label>
                 <span id="capture-mode" class="capture-mode">—</span>
-                <span id="capture-auto-status" class="capture-auto-status">off</span>
             </div>
+	    <span id="capture-auto-status" class="capture-auto-status">off</span>
             <p id="capture-status" class="capture-status"></p>
         </div>
     </div>
