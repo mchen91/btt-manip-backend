@@ -259,3 +259,145 @@ img.stock-icon {
     margin: 0;
     font-family: monospace;
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Live Capture panel                                                 */
+/* ------------------------------------------------------------------ */
+
+#capture-panel {
+    margin: 0.5rem 0;
+}
+
+#capture-toggle {
+    font-size: 1rem;
+    padding: 0.4rem 0.8rem;
+    cursor: pointer;
+    background-color: #eee;
+    border: 1px solid #ccc;
+    border-radius: 0.3rem;
+}
+
+#capture-body {
+    margin-top: 0.8rem;
+    padding: 0.8rem;
+    border: 1px solid #ddd;
+    border-radius: 0.4rem;
+    background-color: #fff;
+}
+
+#capture-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.8rem;
+}
+
+#capture-controls select,
+#capture-controls button,
+#capture-classify select,
+#capture-classify button {
+    padding: 0.35rem 0.6rem;
+}
+
+#capture-views {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: flex-start;
+}
+
+.capture-view-label {
+    margin: 0 0 0.3rem;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+#capture-raw {
+    border: 1px solid #ccc;
+    max-width: 100%;
+    cursor: crosshair;
+}
+
+#capture-rect {
+    border: 1px solid #ccc;
+    image-rendering: pixelated;
+}
+
+#capture-stability {
+    width: 150px;
+    height: 8px;
+    margin: 0.3rem 0;
+    background-color: #eee;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#capture-stability-bar {
+    height: 100%;
+    width: 0%;
+    background-color: #2bd66b;
+    transition: width 0.1s linear;
+}
+
+#capture-classify {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+#capture-match {
+    color: #1560b3;
+}
+
+.capture-sep {
+    color: #ccc;
+}
+
+.capture-status {
+    margin: 0.8rem 0 0;
+    font-size: 0.85rem;
+    color: #666;
+    min-height: 1.2em;
+}
+
+#capture-auto {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    margin-top: 0.8rem;
+    padding-top: 0.8rem;
+    border-top: 1px dashed #ddd;
+}
+
+.capture-auto-status {
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: #1560b3;
+    padding: 0.1rem 0.5rem;
+    background-color: #eef4fb;
+    border-radius: 0.3rem;
+}
+
+.capture-mode {
+    font-family: monospace;
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #888;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.3rem;
+}
+
+.capture-mode.mode-rec {
+    color: #1a7f37;
+    background-color: #e7f6ec;
+}
+
+.capture-mode.mode-exec {
+    color: #b3541e;
+    background-color: #fbeee2;
+}

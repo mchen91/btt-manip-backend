@@ -60,6 +60,50 @@
         </div>
     </div>
     <hr>
+    <div id="capture-panel">
+        <button id="capture-toggle" type="button">📷 Live Capture (beta) ▾</button>
+        <div id="capture-body" class="none">
+            <div id="capture-controls">
+                <select id="capture-device" title="Video source"></select>
+                <button id="capture-start" type="button">Start Camera</button>
+                <button id="capture-stop" type="button" disabled>Stop</button>
+                <button id="capture-calibrate" type="button" disabled>Calibrate</button>
+            </div>
+            <div id="capture-views">
+                <div class="capture-view">
+                    <p class="capture-view-label">Camera (click 4 card corners when calibrating)</p>
+                    <canvas id="capture-raw" width="0" height="0"></canvas>
+                </div>
+                <div class="capture-view">
+                    <p class="capture-view-label">Rectified card</p>
+                    <canvas id="capture-rect"></canvas>
+                    <div id="capture-stability"><div id="capture-stability-bar"></div></div>
+                    <p class="capture-view-label">Feed: <span id="capture-stability-label">—</span></p>
+                </div>
+            </div>
+            <div id="capture-classify">
+                <label>Detected: <strong id="capture-match">—</strong></label>
+                <button id="capture-add" type="button" disabled>Add detected → sequence</button>
+                <span class="capture-sep">|</span>
+                <label>Teach template:
+                    <select id="capture-char"></select>
+                </label>
+                <button id="capture-template" type="button">Capture template</button>
+            </div>
+            <div id="capture-auto">
+                <label title="Automatically add each rolled character to the sequence">
+                    <input type="checkbox" id="capture-auto-entry"> Auto-enter rolls
+                </label>
+                <label title="Run Search automatically the moment the character quota is reached (9 first search, 4 successive)">
+                    <input type="checkbox" id="capture-auto-search"> Auto-search at quota
+                </label>
+                <span id="capture-mode" class="capture-mode">—</span>
+                <span id="capture-auto-status" class="capture-auto-status">off</span>
+            </div>
+            <p id="capture-status" class="capture-status"></p>
+        </div>
+    </div>
+    <hr>
     <div id="content-container">
         <div id="character-select">
             <h3>Character Sequence</h3>
@@ -92,4 +136,5 @@
 </body>
 
 <script src="js/script.js" type="module"></script>
+<script src="js/capture.js" type="module"></script>
 </html>

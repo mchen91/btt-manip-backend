@@ -575,6 +575,11 @@ window.undoChar = undoChar;
 window.clearSeq = clearSeq;
 window.reset = reset;
 
+// Seam for the Live Capture module (capture.js). It only ever calls these two
+// entry points, exactly as a manual click / Search press would.
+window.addCharToSeq = addCharToSeq;
+// (searchForSeed already exposed above.)
+
 addEventListener('keyup', (event) => {
   keySeq.push(event.code)
   if (keySeq.length > MAX_KEY_SEQ_LENGTH) {
