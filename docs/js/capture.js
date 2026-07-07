@@ -74,7 +74,17 @@ const MOVING_TIMEOUT_MS = 1400; // stuck "moving" this long -> classify anyway
 // while still catching a deliberate re-roll onto the same character (which
 // swaps the whole portrait and so clears STRONG_PEAK).
 const STRONG_PEAK = 20;
-const CONF_MIN = 0.72;       // min cosine similarity to auto-add (else skip)
+const CONF_MIN = 0.72;       // min cosine similarity for the empty-card delimiter
+// Auto-add gate. Rather than an absolute similarity floor (which drifts below
+// itself as room lighting changes over the day), we require the best match to
+// stand out from the runner-up by a RELATIVE margin: (best - second) / best.
+// A global dimming compresses every similarity together, so the ratio is stable
+// even when the absolute best falls from ~0.92 (calibration) to ~0.72 (night).
+// AUTOADD_FLOOR stays only as a garbage guard: it rejects frames where nothing
+// matches well (e.g. the stage mid-run), where a large relative margin could
+// otherwise appear by chance between two equally-bad candidates.
+const AUTOADD_FLOOR = 0.55;  // below this the best match is treated as garbage
+const AUTOADD_MARGIN = 0.15; // best must beat 2nd-best by this fraction of best
 const ADD_COOLDOWN_MS = 450; // ignore a second "roll" fired this fast
 const BASELINE_ALPHA = 0.05; // EMA rate for the noise-floor baseline
 
@@ -493,6 +503,7 @@ function classifyCurrent() {
     index: isEmpty ? -1 : Number(best.key),
     isEmpty,
     similarity: best.similarity,
+    secondSim: Number.isFinite(secondSim) ? secondSim : 0,
   };
   const conf = Math.max(0, Math.round(best.similarity * 100));
   const margin = Math.round((best.similarity - secondSim) * 100);
@@ -647,8 +658,17 @@ function onRollSettled(now, peak) {
     return;
   }
 
-  if (m.similarity < CONF_MIN) {
+  // Garbage guard: nothing on screen matches a taught template well enough.
+  if (m.similarity < AUTOADD_FLOOR) {
     setAutoStatus(`skipped: low confidence (${pct}%, peak ${pk})`);
+    return;
+  }
+  // Differentiation gate: the best match must stand clearly apart from the
+  // runner-up. Relative to `best` so it survives global lighting drift.
+  const relMargin = (m.similarity - m.secondSim) / m.similarity;
+  if (relMargin < AUTOADD_MARGIN) {
+    const mp = Math.round(relMargin * 100);
+    setAutoStatus(`skipped: ambiguous (${pct}%, +${mp}% vs next, peak ${pk})`);
     return;
   }
 
