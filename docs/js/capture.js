@@ -553,7 +553,10 @@ function enterLocating(msg) {
   // on the card (e.g. Peach after a run) is never recorded.
   state.lastAddedIndex = -1;
   state.sawEmptySinceAdd = false;
-  state.lastAddTime = performance.now();
+  // Do NOT re-arm the add cooldown here: it only exists to debounce double-fires
+  // of a single roll, and there is no prior add to debounce against right after a
+  // run. Re-stamping it silently swallowed the first roll back on the CSS.
+  state.lastAddTime = 0;
   updateModeBadge();
   if (msg) setAutoStatus(msg);
 }
