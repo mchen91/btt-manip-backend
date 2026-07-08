@@ -258,6 +258,7 @@ img.stock-icon {
 .action-line {
     margin: 0;
     font-family: monospace;
+    font-size: 16px;
 }
 
 
@@ -308,37 +309,10 @@ img.stock-icon {
     align-items: flex-start;
 }
 
-.capture-view-label {
-    margin: 0 0 0.3rem;
-    font-size: 0.85rem;
-    color: #555;
-}
-
 #capture-raw {
     border: 1px solid #ccc;
     max-width: 100%;
     cursor: crosshair;
-}
-
-#capture-rect {
-    border: 1px solid #ccc;
-    image-rendering: pixelated;
-}
-
-#capture-stability {
-    width: 150px;
-    height: 8px;
-    margin: 0.3rem 0;
-    background-color: #eee;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-#capture-stability-bar {
-    height: 100%;
-    width: 0%;
-    background-color: #2bd66b;
-    transition: width 0.1s linear;
 }
 
 #capture-classify {

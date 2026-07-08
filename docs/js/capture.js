@@ -383,7 +383,6 @@ function rectifyCard() {
     }
   }
 
-  els.rectCanvas.getContext("2d").putImageData(out, 0, 0);
   updateStability(out);
   state.lastRectImageData = out;
 }
@@ -410,12 +409,6 @@ function updateStability(img) {
   else if (state.eventPhase === "stable") {
     state.baseline = state.baseline * (1 - BASELINE_ALPHA) + diff * BASELINE_ALPHA;
   }
-
-  const pct = Math.min(100, diff * 2); // rough scaling for the meter
-  els.stabilityBar.style.width = `${pct}%`;
-  els.stabilityBar.style.background = diff < 3 ? "#2bd66b" : diff < 12 ? "#f0ad4e" : "#fa6c6c";
-  els.stabilityLabel.textContent =
-    `${state.eventPhase === "moving" ? "moving" : "stable"} (d ${diff.toFixed(1)} / base ${(state.baseline ?? 0).toFixed(1)})`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -823,9 +816,6 @@ function init() {
     stopBtn: document.getElementById("capture-stop"),
     calibrateBtn: document.getElementById("capture-calibrate"),
     rawCanvas: document.getElementById("capture-raw"),
-    rectCanvas: document.getElementById("capture-rect"),
-    stabilityBar: document.getElementById("capture-stability-bar"),
-    stabilityLabel: document.getElementById("capture-stability-label"),
     charSelect: document.getElementById("capture-char"),
     captureTemplateBtn: document.getElementById("capture-template"),
     matchLabel: document.getElementById("capture-match"),
@@ -836,9 +826,6 @@ function init() {
     status: document.getElementById("capture-status"),
   };
   if (!els.panel) return; // panel not present
-
-  els.rectCanvas.width = RECT_W;
-  els.rectCanvas.height = RECT_H;
 
   populateCharSelect();
   rebuildHomography();

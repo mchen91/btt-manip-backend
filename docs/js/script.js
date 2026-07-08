@@ -195,13 +195,13 @@ function displayActionSequence(actionSequence, rolls, seakSpawn) {
   }
 
   // Print header
-  addActionLine(actionsBlock, '----------------------------------');
-  addActionLine(actionsBlock, `Achievable in ${numActions} action${numActions == 1 ? '' : 's'}`);
-  addActionLine(actionsBlock, '----------------------------------');
-  addActionLine(actionsBlock, `Manip Stage: [${seakSpawn ? 'SEAK' : 'PEACH'}]`);
-  addActionLine(actionsBlock, `Target: ${rolls} rolls`);
+  // addActionLine(actionsBlock, '----------------------------------');
+  // addActionLine(actionsBlock, `Achievable in ${numActions} action${numActions == 1 ? '' : 's'}`);
+  // addActionLine(actionsBlock, '----------------------------------');
+  // addActionLine(actionsBlock, `Manip Stage: [${seakSpawn ? 'SEAK' : 'PEACH'}]`);
+  // addActionLine(actionsBlock, `Target: ${rolls} rolls`);
   
-  actionsBlock.appendChild(document.createElement('br'));
+  // actionsBlock.appendChild(document.createElement('br'));
 
 
   // Always attempt to print the stage loads first if applicable
@@ -316,11 +316,11 @@ function clearResults() {
 }
 
 function displaySearchResult(parent, searchResult) {
-  parent.appendChild(document.createTextNode('Event Seed: 0x' + formatHex(searchResult.eventSeed)));
-  parent.appendChild(document.createElement('br'));
-  parent.appendChild(document.createTextNode('0x' + formatHex(searchResult.startSeed) + ' => 0x' + formatHex(searchResult.eventSeed)));
-  parent.appendChild(document.createElement('br'));
-  parent.appendChild(document.createTextNode('Interval: ' + searchResult.interval));
+  // parent.appendChild(document.createTextNode('Event Seed: 0x' + formatHex(searchResult.eventSeed)));
+  // parent.appendChild(document.createElement('br'));
+  // parent.appendChild(document.createTextNode('0x' + formatHex(searchResult.startSeed) + ' => 0x' + formatHex(searchResult.eventSeed)));
+  // parent.appendChild(document.createElement('br'));
+  // parent.appendChild(document.createTextNode('Interval: ' + searchResult.interval));
 
   // Log for funsies
   console.log('Event Seed: 0x' + formatHex(searchResult.eventSeed));
