@@ -218,19 +218,25 @@ function displayActionSequence(actionSequence, rolls, seakSpawn) {
 }
 
 
+function createCharIcon(characterIndex) {
+  let icon = document.createElement('img');
+  icon.classList.add('stock-icon');
+  icon.ondragstart = () => false;
+  icon.setAttribute('src', STOCK_ICONS[characterIndex]);
+  return icon;
+}
+
+function appendCharIcon(characterIndex) {
+  let parent = document.getElementById('char-seq-container');
+  parent.appendChild(createCharIcon(characterIndex));
+}
+
 function buildCharIconList() {
   let parent = document.getElementById('char-seq-container');
   parent.innerHTML = '';
 
   for (let i = 0; i < charSeq.length; i++) {
-    let characterIndex = charSeq[i];
-
-    let icon = document.createElement('img');
-    icon.classList.add('stock-icon');
-    icon.ondragstart = () => false;
-    icon.setAttribute('src', STOCK_ICONS[characterIndex]);
-
-    parent.appendChild(icon);
+    parent.appendChild(createCharIcon(charSeq[i]));
   }
 }
 
@@ -267,6 +273,9 @@ function addCharToSeq(characterIndex) {
   if (charSeq.length >= maxChars) {
     // pop one off the list!
     charSeq = charSeq.slice(1);
+    // Drop the matching (oldest) icon so the DOM stays in sync without a rebuild.
+    let parent = document.getElementById('char-seq-container');
+    if (parent.firstChild) parent.removeChild(parent.firstChild);
   }
 
   console.log('adding character: ' + characterIndex);
@@ -274,8 +283,8 @@ function addCharToSeq(characterIndex) {
   // Add to index array
   charSeq.push(characterIndex);
 
-  // Add element to page
-  buildCharIconList();
+  // Append just the new icon (avoid re-requesting every prior character's image).
+  appendCharIcon(characterIndex);
 
   // Update character count
   updateCharSeqDisplay();
