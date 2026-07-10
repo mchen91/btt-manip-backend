@@ -39,15 +39,15 @@ function labelForKey(key) {
 
 // Rectified card dimensions (the head-on image we classify against).
 // The character card is portrait-ish; tune later against real footage.
-const RECT_W = 150;
-const RECT_H = 200;
+const RECT_W = 160;
+const RECT_H = 90;
 
 // Classification feature: a moderate-resolution COLOR thumbnail of the
 // rectified card. Downscaling is for noise/alignment robustness, not
 // speed (compare is trivially cheap); we keep it big enough and in color
 // to separate 25 characters. Bump these to trade robustness for detail.
-const THUMB_W = 48;
-const THUMB_H = 64;
+const THUMB_W = 64;
+const THUMB_H = 36;
 const FEATURE_LEN = THUMB_W * THUMB_H * 3; // RGB
 
 // Multi-sample: Capture Template averages this many frames (~1s @ ~15fps)
