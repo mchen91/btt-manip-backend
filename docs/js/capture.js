@@ -186,10 +186,15 @@ async function listDevices() {
 async function startCamera() {
   try {
     const deviceId = els.deviceSelect.value || undefined;
+    // We only ever classify a downscaled RECT_W x RECT_H (then a 64x36 feature)
+    // thumbnail, so ask the source for a small frame: even though the OBS
+    // Virtual Camera nominally outputs 1080p, requesting a low resolution lets
+    // the browser hand us a downscaled track and skip decoding megapixels of a
+    // feed whose real detail tops out well below this anyway. 320x180 keeps a
+    // 2x supersampling margin over RECT_W x RECT_H at ~1/36 the pixels of 1080p.
+    const size = { width: { ideal: 320 }, height: { ideal: 180 } };
     const constraints = {
-      video: deviceId
-        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        : { width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: deviceId ? { deviceId: { exact: deviceId }, ...size } : { ...size },
       audio: false,
     };
     state.stream = await navigator.mediaDevices.getUserMedia(constraints);
