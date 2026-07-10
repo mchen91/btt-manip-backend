@@ -50,37 +50,24 @@ const THUMB_W = 64;
 const THUMB_H = 36;
 const FEATURE_LEN = THUMB_W * THUMB_H * 3; // RGB
 
-// --- Auto-entry event detection (all tunable against real footage) ---
-// A "roll" is one motion burst in the card ROI followed by a settle. We
-// gate on that cycle (not on the character changing) so rolling the same
-// character twice in a row still registers as two rolls.
-//
-// Thresholds are RELATIVE to an adaptive baseline of the feed's own noise
-// floor, so this works regardless of how noisy a given webcam is (absolute
-// thresholds get stuck "moving" forever when resting noise is high).
-const MOTION_DELTA = 8;      // diff must exceed baseline by this = roll started
-const SETTLE_MARGIN = 3;     // diff within baseline+this = settled
-const SETTLE_FRAMES = 3;     // consecutive settled frames before we read it
-const MOVING_TIMEOUT_MS = 1400; // stuck "moving" this long -> classify anyway
-// A roll only counts if it was a STRONG motion (peak this far above
-// baseline = a real portrait swap) OR it landed on a different character.
-// This rejects idle-animation jitter re-adding the character already shown,
-// while still catching a deliberate re-roll onto the same character (which
-// swaps the whole portrait and so clears STRONG_PEAK).
-const STRONG_PEAK = 20;
-const CONF_MIN = 0.72;       // min cosine similarity for the empty-card delimiter
-// Auto-add gate. Rather than an absolute similarity floor (which drifts below
-// itself as room lighting changes over the day), we require the best match to
-// stand out from the runner-up by a RELATIVE margin: (best - second) / best.
-// A global dimming compresses every similarity together, so the ratio is stable
-// even when the absolute best falls from ~0.92 (calibration) to ~0.72 (night).
-// AUTOADD_FLOOR stays only as a garbage guard: it rejects frames where nothing
-// matches well (e.g. the stage mid-run), where a large relative margin could
-// otherwise appear by chance between two equally-bad candidates.
+// --- Auto-entry roll detection ---
+// The OBS feed is a clean, static digital image, so we don't infer rolls from
+// inter-frame motion; we read the classified label directly. Every roll is
+// bracketed by a deselect (the empty card), so that is the delimiter: after an
+// empty we "arm", and the next character that classifies confidently for a few
+// frames is the roll.
+const CONF_MIN = 0.72;       // min cosine similarity to trust the empty delimiter
+// Auto-add gate. The best match must both clear a garbage floor and stand out
+// from the runner-up by a RELATIVE margin (best - second)/best. Together these
+// reject mid-transition frames and the stage during a run (where nothing matches
+// well, so a large margin could otherwise appear by chance between two bad ones).
 const AUTOADD_FLOOR = 0.55;  // below this the best match is treated as garbage
 const AUTOADD_MARGIN = 0.15; // best must beat 2nd-best by this fraction of best
-const ADD_COOLDOWN_MS = 450; // ignore a second "roll" fired this fast
-const BASELINE_ALPHA = 0.05; // EMA rate for the noise-floor baseline
+const CONFIRM_FRAMES = 2;    // consecutive confident frames on a character before adding
+// Sample rate: we only need to sample fast enough to catch each transient state
+// (character shown / deselected). At ~4 rolls/sec those last ~150ms, so 30fps
+// (~5 samples/state) is comfortable while cutting the loop's CPU vs the vsync rate.
+const SAMPLE_INTERVAL_MS = 1000 / 30;
 
 // Recording mode / run detection. While "executing" (after a successful
 // search), we ignore the card entirely until we detect a run has happened:
@@ -109,21 +96,15 @@ const state = {
   templates: loadTemplates(),
   templateFeatures: {},
   lastRectImageData: null,
-  prevLuma: null,
-  lastDiff: 0, // most recent inter-frame diff (drives event detection)
-  lastMatch: null, // { index, similarity }
+  lastMatch: null, // { key, index, isEmpty, similarity, secondSim }
 
   // Auto-entry
   autoEntry: false,
   autoSearch: false,
-  eventPhase: "stable", // "stable" | "moving"
-  settleFrames: 0,
-  movingStart: 0,
-  rollPeak: 0, // max (diff - baseline) seen during the current motion burst
-  baseline: null, // adaptive noise floor of lastDiff (EMA, updated when stable)
-  lastAddTime: 0,
-  lastAddedIndex: -1, // last character auto-added (for the identity gate)
-  sawEmptySinceAdd: false, // has the card been deselected since the last add?
+  sawEmptySinceAdd: false, // "armed": card deselected since the last add
+  lastAddedIndex: -1, // last character auto-added (identity-change fallback)
+  confirmKey: null, // character key currently accumulating confirmation frames
+  confirmCount: 0, // consecutive confident frames on confirmKey
 
   // Recording mode
   recordingMode: "locating", // "locating" (record rolls) | "executing" (ignore)
@@ -232,12 +213,20 @@ function stopCamera() {
 /* Frame loop                                                         */
 /* ------------------------------------------------------------------ */
 
-function loop() {
+// requestAnimationFrame drives the loop (it pauses when the tab is hidden and
+// stays vsync-aligned), but we only do the expensive work — frame readback +
+// classify — at SAMPLE_INTERVAL_MS. Skipped ticks are nearly free, so on a
+// high-refresh monitor this cuts the loop's CPU proportionally.
+let lastSampleTs = 0;
+function loop(now) {
   if (!state.running) return;
+  state.rafId = requestAnimationFrame(loop);
+  const t = now ?? performance.now(); // first call (from startCamera) has no arg
+  if (t - lastSampleTs < SAMPLE_INTERVAL_MS) return;
+  lastSampleTs = t;
   captureCard();
   classifyCurrent();
   updateAutoEntry();
-  state.rafId = requestAnimationFrame(loop);
 }
 
 // The Virtual Camera feed is already the character card, cropped and
@@ -254,33 +243,7 @@ function captureCard() {
   }
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(v, 0, 0, RECT_W, RECT_H);
-  const img = ctx.getImageData(0, 0, RECT_W, RECT_H);
-  updateStability(img);
-  state.lastRectImageData = img;
-}
-
-// Mean absolute luma difference between consecutive rectified frames.
-// Low = stable (safe to read); a spike = a roll animation is happening.
-function updateStability(img) {
-  const d = img.data;
-  const luma = new Float32Array(RECT_W * RECT_H);
-  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
-    luma[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-  }
-  let diff = 0;
-  if (state.prevLuma) {
-    for (let j = 0; j < luma.length; j++) diff += Math.abs(luma[j] - state.prevLuma[j]);
-    diff /= luma.length;
-  }
-  state.prevLuma = luma;
-  state.lastDiff = diff;
-
-  // Track the feed's noise floor, but only while not mid-roll, so a roll
-  // animation can't inflate the baseline it's measured against.
-  if (state.baseline === null) state.baseline = diff;
-  else if (state.eventPhase === "stable") {
-    state.baseline = state.baseline * (1 - BASELINE_ALPHA) + diff * BASELINE_ALPHA;
-  }
+  state.lastRectImageData = ctx.getImageData(0, 0, RECT_W, RECT_H);
 }
 
 /* ------------------------------------------------------------------ */
@@ -400,8 +363,8 @@ function enterExecuting(msg) {
   state.recordingMode = "executing";
   state.runSeen = false;
   state.offCssSince = 0;
-  state.eventPhase = "stable";
-  state.settleFrames = 0;
+  state.confirmKey = null;
+  state.confirmCount = 0;
   updateModeBadge();
   setAutoStatus(msg || "seed found — recording paused (performing run)");
 }
@@ -411,17 +374,12 @@ function enterLocating(msg) {
   state.runSeen = false;
   state.offCssSince = 0;
   state.searchPending = false;
-  state.eventPhase = "stable";
-  state.settleFrames = 0;
-  state.rollPeak = 0;
+  state.confirmKey = null;
+  state.confirmCount = 0;
   // Require a fresh deselect before the first record, so a character already
   // on the card (e.g. Peach after a run) is never recorded.
   state.lastAddedIndex = -1;
   state.sawEmptySinceAdd = false;
-  // Do NOT re-arm the add cooldown here: it only exists to debounce double-fires
-  // of a single roll, and there is no prior add to debounce against right after a
-  // run. Re-stamping it silently swallowed the first roll back on the CSS.
-  state.lastAddTime = 0;
   updateModeBadge();
   if (msg) setAutoStatus(msg);
 }
@@ -454,97 +412,65 @@ function updateRunTransition(now) {
   }
 }
 
-// Per-frame state machine.
+// Per-frame state machine. On a clean feed we read the classified label
+// directly: a deselect (empty) arms us, then the next character that classifies
+// confidently for CONFIRM_FRAMES consecutive frames is recorded as one roll.
 function updateAutoEntry() {
   if (!state.autoEntry) return;
-  const now = performance.now();
 
   if (state.recordingMode === "executing") {
-    updateRunTransition(now);
+    updateRunTransition(performance.now());
     return;
   }
-
-  // --- locating: detect one roll = motion burst that settles, then add ---
-  const diff = state.lastDiff;
-  const base = state.baseline ?? 0;
-
-  // Card deselected (empty) at any point = the delimiter between rolls.
-  if (state.lastMatch && state.lastMatch.isEmpty && state.lastMatch.similarity >= CONF_MIN) {
-    state.sawEmptySinceAdd = true;
-  }
-
-  if (state.eventPhase === "stable") {
-    if (diff > base + MOTION_DELTA) {
-      state.eventPhase = "moving";
-      state.settleFrames = 0;
-      state.movingStart = now;
-      state.rollPeak = diff - base;
-      setAutoStatus("roll detected…");
-    }
-  } else {
-    state.rollPeak = Math.max(state.rollPeak, diff - base);
-    if (diff < base + SETTLE_MARGIN) state.settleFrames++;
-    else state.settleFrames = 0;
-
-    const timedOut = now - state.movingStart > MOVING_TIMEOUT_MS;
-    if (state.settleFrames >= SETTLE_FRAMES || timedOut) {
-      state.eventPhase = "stable";
-      state.settleFrames = 0;
-      onRollSettled(now, state.rollPeak);
-    }
-  }
-}
-
-function onRollSettled(now, peak) {
   if (state.searchPending) return; // a search is resolving; ignore input
+
   const m = state.lastMatch;
-  if (!m) {
-    setAutoStatus("roll ended — no classification (templates loaded?)");
-    return;
-  }
-  const pct = Math.round(m.similarity * 100);
-  const pk = Math.round(peak);
+  if (!m) return; // no templates / nothing classified yet
 
-  // Settling on the empty card = the delimiter, not a roll.
+  // Deselect = the delimiter between rolls: arm for the next character and
+  // abandon any character confirmation in progress.
   if (m.isEmpty) {
-    state.sawEmptySinceAdd = true;
-    setAutoStatus(`deselected — ready for next roll`);
+    if (m.similarity >= CONF_MIN) {
+      state.sawEmptySinceAdd = true;
+      state.confirmKey = null;
+      state.confirmCount = 0;
+      setAutoStatus("deselected — ready for next roll");
+    }
     return;
   }
 
-  if (now - state.lastAddTime < ADD_COOLDOWN_MS) return;
-
-  // New-roll gate: when an empty template is taught, the deselect delimiter is
-  // authoritative (this also stops a pre-selected character being recorded).
-  // Otherwise fall back to strong-peak / identity-change heuristics.
-  const emptyTaught = EMPTY_KEY in state.templates;
-  const isNewRoll = emptyTaught
-    ? state.sawEmptySinceAdd
-    : peak >= STRONG_PEAK || m.index !== state.lastAddedIndex;
-  if (!isNewRoll) {
-    setAutoStatus(`ignored repeat: ${labelForKey(m.key)} (peak ${pk})`);
-    return;
-  }
-
-  // Garbage guard: nothing on screen matches a taught template well enough.
-  if (m.similarity < AUTOADD_FLOOR) {
-    setAutoStatus(`skipped: low confidence (${pct}%, peak ${pk})`);
-    return;
-  }
-  // Differentiation gate: the best match must stand clearly apart from the
-  // runner-up. Relative to `best` so it survives global lighting drift.
+  // A character frame only counts if it clears the garbage floor and stands
+  // clearly apart from the runner-up; otherwise it's a mid-transition frame and
+  // we drop any partial confirmation.
   const relMargin = (m.similarity - m.secondSim) / m.similarity;
-  if (relMargin < AUTOADD_MARGIN) {
-    const mp = Math.round(relMargin * 100);
-    setAutoStatus(`skipped: ambiguous (${pct}%, +${mp}% vs next, peak ${pk})`);
+  if (m.similarity < AUTOADD_FLOOR || relMargin < AUTOADD_MARGIN) {
+    state.confirmKey = null;
+    state.confirmCount = 0;
     return;
   }
+
+  // Debounce: the same character must hold for CONFIRM_FRAMES consecutive frames
+  // before we treat it as landed.
+  if (m.key === state.confirmKey) state.confirmCount++;
+  else { state.confirmKey = m.key; state.confirmCount = 1; }
+  if (state.confirmCount < CONFIRM_FRAMES) return;
+
+  // New-roll gate: a deselect must have separated this from the previous add.
+  // The deselect is authoritative; an identity change (a different character
+  // than last recorded) also counts, as a fallback if a deselect frame was ever
+  // missed -- but only mid-sequence (lastAddedIndex !== -1), so a character
+  // already on the card before the first deselect (e.g. Peach after a run) is
+  // never recorded. Resting on the character we already recorded does nothing.
+  const isNewRoll = state.sawEmptySinceAdd ||
+    (state.lastAddedIndex !== -1 && m.index !== state.lastAddedIndex);
+  if (!isNewRoll) return;
 
   window.addCharToSeq(m.index);
-  state.lastAddTime = now;
   state.lastAddedIndex = m.index;
   state.sawEmptySinceAdd = false;
-  setAutoStatus(`added ${labelForKey(m.key)} (${pct}%, peak ${pk})`);
+  state.confirmKey = null;
+  state.confirmCount = 0;
+  setAutoStatus(`added ${labelForKey(m.key)} (${Math.round(m.similarity * 100)}%)`);
   maybeAutoSearchAtQuota();
 }
 
