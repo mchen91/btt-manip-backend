@@ -50,10 +50,6 @@ const THUMB_W = 64;
 const THUMB_H = 36;
 const FEATURE_LEN = THUMB_W * THUMB_H * 3; // RGB
 
-// Multi-sample: Capture Template averages this many frames (~1s @ ~15fps)
-// so the reference isn't a single noisy webcam frame.
-const SAMPLES_PER_TEMPLATE = 20;
-
 // --- Auto-entry event detection (all tunable against real footage) ---
 // A "roll" is one motion burst in the card ROI followed by a settle. We
 // gate on that cycle (not on the character changing) so rolling the same
@@ -112,7 +108,6 @@ const state = {
   // normalized (zero-mean, unit-norm) version used for cosine matching.
   templates: loadTemplates(),
   templateFeatures: {},
-  collecting: null, // { idx, remaining, total, sum:Float32Array }
   lastRectImageData: null,
   prevLuma: null,
   lastDiff: 0, // most recent inter-frame diff (drives event detection)
@@ -235,12 +230,8 @@ function stopCamera() {
 function loop() {
   if (!state.running) return;
   captureCard();
-  if (state.collecting) {
-    collectSample();
-  } else {
-    classifyCurrent();
-    updateAutoEntry();
-  }
+  classifyCurrent();
+  updateAutoEntry();
   state.rafId = requestAnimationFrame(loop);
 }
 
@@ -568,48 +559,23 @@ function maybeAutoSearchAtQuota() {
 /* Template capture                                                   */
 /* ------------------------------------------------------------------ */
 
+// The feed is a clean, static digital frame, so a single grab is as good a
+// reference as an average — snapshot the current thumbnail straight into the
+// template.
 function captureTemplate() {
   if (!state.lastRectImageData) {
     setStatus("Nothing to capture yet — start the camera first.");
     return;
   }
-  if (state.collecting) return; // already sampling
   const key = els.charSelect.value; // character index (as string) or EMPTY_KEY
-  state.collecting = {
-    key,
-    remaining: SAMPLES_PER_TEMPLATE,
-    total: SAMPLES_PER_TEMPLATE,
-    sum: new Float32Array(FEATURE_LEN),
-  };
-  els.captureTemplateBtn.disabled = true;
-  setStatus(`Hold ${labelForKey(key)} steady on the card… sampling 0/${SAMPLES_PER_TEMPLATE}`);
-}
-
-// Called once per frame while a capture is in progress: accumulate the
-// current thumbnail, then finalize (average) once enough frames are in.
-function collectSample() {
-  const c = state.collecting;
   const thumb = makeThumbnail(state.lastRectImageData);
-  for (let i = 0; i < thumb.length; i++) c.sum[i] += thumb[i];
-  c.remaining--;
-  const got = c.total - c.remaining;
-  setStatus(`Hold ${labelForKey(c.key)} steady on the card… sampling ${got}/${c.total}`);
-  if (c.remaining <= 0) finalizeCollection();
-}
-
-function finalizeCollection() {
-  const c = state.collecting;
-  const avg = new Uint8ClampedArray(FEATURE_LEN);
-  for (let i = 0; i < FEATURE_LEN; i++) avg[i] = c.sum[i] / c.total;
-  state.templates[c.key] = avg;
-  state.templateFeatures[c.key] = normalizeFeature(avg);
+  state.templates[key] = thumb;
+  state.templateFeatures[key] = normalizeFeature(thumb);
   saveTemplates();
-  state.collecting = null;
-  els.captureTemplateBtn.disabled = false;
   const charCount = Object.keys(state.templates).filter((k) => k !== EMPTY_KEY).length;
   const hasEmpty = EMPTY_KEY in state.templates;
   setStatus(
-    `Captured ${labelForKey(c.key)} (averaged ${c.total} frames). ` +
+    `Captured ${labelForKey(key)}. ` +
     `${charCount}/25 characters${hasEmpty ? " + empty" : ""} taught.`
   );
 }
