@@ -95,6 +95,14 @@ class OptionEvent extends RngEvent {
 
 const EVENT_SEARCH_MAX_ITERATIONS = 1000000; // 0x100000000 for full range
 
+// Fallback bomb->sword run-consumption model, measured from trial runs (see
+// the spreadsheet linked in buildPullEventList). Superseded at runtime by the
+// live model from data collection (datacollect.js) once enough samples exist.
+const DEFAULT_RUN_MODEL = { mean: 1899, sigma: 36, n: 0 };
+
+// Standard normal PDF.
+const normalPdf = (x) => Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+
 
 const seedYieldsEvents = (seed, events) => {
   for (let i = 0; i < events.length; i++) {
@@ -136,6 +144,75 @@ const searchForEvent = (events, startSeed) => {
   }
 }
 
+
+// Scored bomb->sword candidate search (targetprey).
+//
+// Enumerates seeds from `startSeed` where the next pull is a bomb, and for
+// each one scans the ENTIRE consumption window [mean - 4σ, mean + 4σ] after
+// the post-bomb seed, collecting every offset at which a sword would pull.
+// (The RangeEvent used by the legacy targetprey path stops at the first
+// sword, so it can neither see a second sword in the window nor report where
+// the sword sits relative to the consumption distribution.)
+//
+// Each candidate is scored with the per-run success probability: the run's
+// RNG consumption is ~N(mean, sigma^2), and a run succeeds when consumption
+// lands exactly on a sword offset, so p = Σ_offsets φ((offset-mean)/σ)/σ.
+//
+// Returns up to `maxCandidates` candidates with interval <= horizon, each:
+//   { seed, interval, postBombSeed, offsets: [..], p }
+// If none of them contains a sword (p > 0), the search continues past the
+// horizon for the first candidate that does, so callers always have
+// something to target (mirroring the legacy first-match behaviour).
+const findScoredCandidates = (startSeed, opts = {}) => {
+  const mean = opts.mean ?? DEFAULT_RUN_MODEL.mean;
+  const sigma = opts.sigma ?? DEFAULT_RUN_MODEL.sigma;
+  const horizon = opts.horizon ?? 5000;
+  const maxCandidates = opts.maxCandidates ?? 6;
+
+  const bombEvents = [
+    new DelayEvent(12),        // stage load
+    new IntEvent(128, 0, 0),   // item pull
+    new IntEvent(6, 0, 1),     // bomb
+  ];
+  const swordEvents = [
+    new IntEvent(128, 0, 0),   // item pull
+    new IntEvent(6, 5, 5),     // sword
+  ];
+
+  const lo = Math.max(0, Math.round(mean - 4 * sigma));
+  const hi = Math.round(mean + 4 * sigma);
+
+  const candidates = [];
+  let seed = startSeed;
+  for (let interval = 0; interval < EVENT_SEARCH_MAX_ITERATIONS; interval++) {
+    if (candidates.length >= maxCandidates) break;
+    if (interval > horizon && candidates.length > 0) break;
+
+    const [isBomb, postBombSeed] = seedYieldsEvents(seed, bombEvents);
+    if (isBomb) {
+      // Walk the window once, checking each offset for a sword pull.
+      let s = postBombSeed;
+      for (let i = 0; i < lo; i++) s = rngAdv(s);
+      const offsets = [];
+      let p = 0;
+      for (let offset = lo; offset <= hi; offset++) {
+        const [isSword] = seedYieldsEvents(s, swordEvents);
+        if (isSword) {
+          offsets.push(offset);
+          p += normalPdf((offset - mean) / sigma) / sigma;
+        }
+        s = rngAdv(s);
+      }
+      if (offsets.length > 0) {
+        candidates.push({ seed, interval, postBombSeed, offsets, p });
+      }
+    }
+
+    seed = rngAdv(seed);
+  }
+
+  return candidates;
+};
 
 const buildCharacterEvents = (characters) => {
   let events = [];
@@ -260,4 +337,4 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
 
 
 
-export { EVENT_SEARCH_MAX_ITERATIONS, seedYieldsEvents, searchForEvent, buildCharacterEvents, buildPullEventList }
+export { EVENT_SEARCH_MAX_ITERATIONS, DEFAULT_RUN_MODEL, normalPdf, seedYieldsEvents, searchForEvent, findScoredCandidates, buildCharacterEvents, buildPullEventList }

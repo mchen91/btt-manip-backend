@@ -95,6 +95,35 @@
         </div>
     </div>
     <hr>
+    <div id="dc-panel">
+        <button id="dc-toggle" type="button">📈 Run Data — m-protocol (beta) ▾</button>
+        <div id="dc-body" class="none">
+            <div id="dc-controls">
+                <label title="Connect to a local m-protocol daemon (127.0.0.1:43501). Passive: measurements only tune the model for future searches.">
+                    <input type="checkbox" id="dc-enable"> Enable daemon connection
+                </label>
+                <label>Port:
+                    <select id="dc-port">
+                        <option value="1">P1</option>
+                        <option value="2">P2</option>
+                        <option value="3">P3</option>
+                        <option value="4">P4</option>
+                    </select>
+                </label>
+                <button id="dc-learn" type="button" title="Arm, then perform one turnip pull in-game to teach the pull action-state id">Learn pull state</button>
+                <span id="dc-pullstate" class="dc-line">pull state: not learned</span>
+            </div>
+            <p id="dc-conn" class="dc-line">daemon: off</p>
+            <p id="dc-stats" class="dc-line"></p>
+            <canvas id="dc-hist" width="260" height="48"></canvas>
+            <p id="dc-status" class="dc-line"></p>
+            <div>
+                <button id="dc-export" type="button">Export JSON</button>
+                <button id="dc-clear" type="button">Clear data</button>
+            </div>
+        </div>
+    </div>
+    <hr>
     <div id="content-container">
         <div id="character-select">
             <h3>Character Sequence</h3>
@@ -126,6 +155,8 @@
     </div>
 </body>
 
+<script src="js/m-protocol.js"></script>
 <script src="js/script.js" type="module"></script>
 <script src="js/capture.js" type="module"></script>
+<script src="js/datacollect.js" type="module"></script>
 </html>

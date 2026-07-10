@@ -30,17 +30,23 @@ run_step() {
     echo ""
 }
 
-run_step "[1/4] Python RSS validation" \
+run_step "[1/6] Python RSS validation" \
     python3 tools/validate_charrss.py "$RSS_COUNT"
 
-run_step "[2/4] Generate cross-impl fixture (temp/charrss_anchors.json)" \
+run_step "[2/6] Generate cross-impl fixture (temp/charrss_anchors.json)" \
     python3 tools/_dump_anchors.py 200
 
-run_step "[3/4] JS differential test" \
+run_step "[3/6] JS differential test" \
     node tools/charrss_difftest.mjs 3000
 
-run_step "[4/4] Python <=> C++ brute force validation" \
+run_step "[4/6] Python <=> C++ brute force validation" \
     python3 tools/validate_cpp_oracle.py 1000
+
+run_step "[5/6] Targetprey candidate scoring" \
+    node tools/test_scoring.mjs 200
+
+run_step "[6/6] m-protocol data collector" \
+    node tools/test_datacollect.mjs
 
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

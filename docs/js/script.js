@@ -1,6 +1,6 @@
 import { findSeedDifference, formatHex, isInt, isHex, rngAdv, rngInt } from './util.js';
-import { MANIP_ACTIONS, PORT_ADVANCE_THRESHOLD, STAGE_LOAD_ACTION, buildActionSequence } from './rolls.js';
-import { EVENT_SEARCH_MAX_ITERATIONS, searchForEvent, buildCharacterEvents, buildPullEventList } from './event.js';
+import { MANIP_ACTIONS, PORT_ADVANCE_THRESHOLD, STAGE_LOAD_ACTION, buildActionSequence, manipTimeFrames } from './rolls.js';
+import { EVENT_SEARCH_MAX_ITERATIONS, DEFAULT_RUN_MODEL, searchForEvent, findScoredCandidates, buildCharacterEvents, buildPullEventList } from './event.js';
 
 console.log('Version 1.0.1');
 /* Constants */
@@ -98,6 +98,28 @@ let isFirstSearch = true;
 let lastSeed = -1;
 let searchCount = 0;
 let keySeq = [];
+
+// Info about the most recent manip target, exposed read-only for the
+// m-protocol data collector (datacollect.js). The collector uses
+// postPullSeed as the reference point to measure run RNG consumption; it
+// never writes back into the seed engine.
+let lastTargetInfo = null;
+
+// Non-manip wall-clock cost of one attempt cycle (relocate + reset + run to
+// the sword slot), in frames. Used to weigh candidate manip length against
+// success rate. Empirical: ~7s per cycle.
+const ATTEMPT_OVERHEAD_FRAMES = 7 * 60;
+
+// Run-consumption model for targetprey scoring: measured (from data
+// collection) once enough samples exist, else the spreadsheet-era default.
+function getRunModel() {
+  if (typeof window.getMeasuredRunModel === 'function') {
+    const m = window.getMeasuredRunModel();
+    if (m && m.n >= 20) return { mean: m.mean, sigma: m.sigma, n: m.n, source: 'measured' };
+    if (m) return { ...DEFAULT_RUN_MODEL, source: 'default', measuredN: m.n };
+  }
+  return { ...DEFAULT_RUN_MODEL, source: 'default' };
+}
 
 
 function reset(forceReset = false) {
@@ -359,6 +381,135 @@ function displayPortAdvance(rolls) {
 }
 
 
+// Generic single-pull manip: first matching seed wins (bomb / beamsword /
+// saturn / stitch / happysquare).
+function processGenericPull(seed, summary, mismatch, spawnCondition, selectedItem, seakSpawn) {
+  let events = buildPullEventList(mismatch, spawnCondition, selectedItem);
+  let searchResult = searchForEvent(events, seed);
+
+  if (!searchResult.success) {
+    // Bummer dude
+    alert(`Event not found within ${EVENT_SEARCH_MAX_ITERATIONS} seeds`);
+    return false;
+  }
+
+  displaySearchResult(summary, searchResult);
+
+  let rolls = searchResult.interval;
+
+  // Check for excessively large rolls, should default to CSS
+  if (rolls > PORT_ADVANCE_THRESHOLD) {
+    // Whew boy
+    displayPortAdvance(rolls);
+  } else {
+    displayActionSequence(buildActionSequence(rolls, seakSpawn), rolls, seakSpawn);
+  }
+
+  lastTargetInfo = {
+    item: selectedItem,
+    eventSeed: searchResult.eventSeed,
+    postPullSeed: searchResult.endSeed,
+    interval: rolls,
+    ts: Date.now(),
+  };
+  return true;
+}
+
+// Scored bomb->sword manip (targetprey): enumerate nearby candidates, score
+// each by per-run sword probability under the live consumption model, and
+// auto-target the one with the best probability per attempt-second. The
+// ranked list stays clickable to retarget manually.
+function processTargetprey(seed, summary) {
+  const model = getRunModel();
+  const candidates = findScoredCandidates(seed, {
+    mean: model.mean,
+    sigma: model.sigma,
+    horizon: PORT_ADVANCE_THRESHOLD,
+    maxCandidates: 6,
+  });
+
+  if (candidates.length === 0) {
+    alert(`No bomb->sword candidate found within ${EVENT_SEARCH_MAX_ITERATIONS} seeds`);
+    return false;
+  }
+
+  for (const c of candidates) {
+    // Past the port-advance threshold the manip is mostly waiting on the CSS
+    // at ~4833.9 rolls/s (~80.6 rolls/frame); otherwise cost the action list.
+    c.manipFrames = c.interval > PORT_ADVANCE_THRESHOLD ? null : manipTimeFrames(c.interval);
+    const costFrames = ATTEMPT_OVERHEAD_FRAMES + (c.manipFrames ?? c.interval / 80.6);
+    c.score = c.p / costFrames;
+  }
+  const ranked = candidates.slice().sort((a, b) => b.score - a.score);
+
+  displayCandidates(summary, ranked, model);
+  targetCandidate(ranked[0], model);
+  return true;
+}
+
+function describeModel(model) {
+  const src = model.source === 'measured'
+    ? `measured (n=${model.n})`
+    : `default${model.measuredN ? ` — only ${model.measuredN} measured samples so far` : ''}`;
+  return `Run model: ${src} · mean ${Math.round(model.mean)} · σ ${Number(model.sigma).toFixed(1)}`;
+}
+
+function displayCandidates(summary, ranked, model) {
+  const modelLine = document.createElement('p');
+  modelLine.classList.add('candidate-model');
+  modelLine.textContent = describeModel(model);
+  summary.appendChild(modelLine);
+
+  const list = document.createElement('div');
+  list.id = 'candidate-list';
+  ranked.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.classList.add('candidate-row');
+    if (i === 0) row.classList.add('selected');
+
+    const manipStr = c.manipFrames != null
+      ? `manip ~${(c.manipFrames / 60).toFixed(1)}s`
+      : 'port advance';
+    const oneIn = c.p > 0 ? Math.round(1 / c.p) : Infinity;
+    const offsetsStr = c.offsets
+      .map((o) => `${o - model.mean >= 0 ? '+' : ''}${Math.round(o - model.mean)}`)
+      .join(', ');
+    row.textContent =
+      `${c.interval} rolls · ${manipStr} · sword ${offsetsStr} from center · ~1 in ${oneIn} runs`;
+
+    row.onclick = () => {
+      list.querySelectorAll('.candidate-row').forEach((r) => r.classList.remove('selected'));
+      row.classList.add('selected');
+      targetCandidate(c, model);
+    };
+    list.appendChild(row);
+  });
+  summary.appendChild(list);
+}
+
+function targetCandidate(c, model) {
+  const actionsBlock = document.getElementById('actions');
+  actionsBlock.innerHTML = '';
+  if (c.interval > PORT_ADVANCE_THRESHOLD) {
+    displayPortAdvance(c.interval);
+  } else {
+    displayActionSequence(buildActionSequence(c.interval, false), c.interval, false);
+  }
+
+  lastTargetInfo = {
+    item: 'targetprey',
+    eventSeed: c.seed,
+    postPullSeed: c.postBombSeed,
+    interval: c.interval,
+    offsets: c.offsets.slice(),
+    p: c.p,
+    model: { mean: model.mean, sigma: model.sigma, source: model.source },
+    ts: Date.now(),
+  };
+  console.log('Targeting candidate: 0x' + formatHex(c.seed)
+    + ' interval ' + c.interval + ' p ' + c.p.toFixed(5));
+}
+
 // Found seed, now to search for an event
 function processSeed(seed) {
   let seedSpan = document.getElementById('seed-span');
@@ -377,8 +528,6 @@ function processSeed(seed) {
     let mismatch = document.getElementById('mismatch-checkbox').checked;
     let spawnCondition = document.querySelector('input[name="spawn"]:checked').value;
     let selectedItem = document.querySelector('input[name="item"]:checked').value;
-    let events = buildPullEventList(mismatch, spawnCondition, selectedItem);
-    let searchResult = searchForEvent(events, seed);
 
     const seakSpawn = spawnCondition === 'seak';
 
@@ -386,26 +535,13 @@ function processSeed(seed) {
     let summary = document.getElementById('summary');
     summary.innerHTML = '';
 
-    if (searchResult.success) {
-      displaySearchResult(summary, searchResult);
+    const found = selectedItem === 'targetprey'
+      ? processTargetprey(seed, summary)
+      : processGenericPull(seed, summary, mismatch, spawnCondition, selectedItem, seakSpawn);
 
-      let rolls = searchResult.interval;
-
-      // Check for excessively large rolls, should default to CSS
-      if (rolls > PORT_ADVANCE_THRESHOLD) {
-        // Whew boy
-        displayPortAdvance(rolls);
-      } else {
-        let actionSequence = buildActionSequence(rolls, seakSpawn);
-
-        displayActionSequence(actionSequence, rolls, seakSpawn);
-      }
-      
+    if (found) {
       isFirstSearch = false; // Update flag for future searches
       incrementSearchCount(); // Track searches because that's fun :)
-    } else {
-      // Bummer dude
-      alert(`Event not found within ${EVENT_SEARCH_MAX_ITERATIONS} seeds`);
     }
   } else {
     clearResults();
@@ -588,6 +724,13 @@ window.reset = reset;
 // entry points, exactly as a manual click / Search press would.
 window.addCharToSeq = addCharToSeq;
 // (searchForSeed already exposed above.)
+
+// Seam for the m-protocol data collector (datacollect.js): read-only info
+// about the most recent manip target so it can measure run consumption
+// relative to the post-pull seed. Data flows one way — the collector tunes
+// the model used for FUTURE searches (via window.getMeasuredRunModel) and
+// never feeds memory-derived state into the current run's manip.
+window.getLastTargetInfo = () => lastTargetInfo;
 
 addEventListener('keyup', (event) => {
   keySeq.push(event.code)

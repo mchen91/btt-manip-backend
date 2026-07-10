@@ -39,6 +39,24 @@ For a good (very long) example of what it looks like to manip, see [this video](
 
 ***Note*: It's possible for your game's seed and the application's internal seed to become desynced for a number of reasons. If you feel this may have happened or keep missing pulls, you can always click the "reset" button to re-locate the seed with a new 9-character sequence
 
+# Run data collection (m-protocol) + scored sword targeting
+
+The **targetprey** item mode targets a bomb pull now *and* a beam-sword pull a
+run's-worth of RNG consumption later. Searches enumerate nearby candidate
+seeds, score each by the probability that the run's consumption lands on a
+sword offset, and auto-target the best probability-per-attempt-time (the
+ranked list is clickable to override).
+
+The consumption model behind those scores defaults to the spreadsheet-era
+N(1899, 36²) and switches to live measured values once the **Run Data**
+panel has collected 20+ runs. Measurements come from the
+[m-protocol](https://github.com/gainge/m-protocol) daemon (Windows +
+Dolphin), which streams `match.random_seed` so the app can read consumption
+exactly at the pull frames — strictly passively: memory data only tunes the
+model for future searches and never assists the run in progress. See
+[`PLAN_MPROTOCOL.md`](PLAN_MPROTOCOL.md) for the design and
+[`WINDOWS_AGENT.md`](WINDOWS_AGENT.md) for setting up the daemon machine.
+
 # Running Locally
 This is a fully static site — all seed location runs client-side in the browser (a
 direct CVP / Hidden-Number-Problem reconstruction; see [`RSS_IMPLEMENTATION.md`](RSS_IMPLEMENTATION.md)).

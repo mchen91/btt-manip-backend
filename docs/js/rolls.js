@@ -90,6 +90,17 @@ const findActionSequence = (total, actions) => {
   return sortedSequence;
 }
 
+// Estimated wall time (in frames) to execute a manip of `rolls` rolls, using
+// the same action-sequence optimizer the display uses. Used to cost seed
+// candidates against each other.
+const manipTimeFrames = (rolls, seakSpawn = false) => {
+  let frames = 0;
+  for (let [action, count] of buildActionSequence(rolls, seakSpawn).entries()) {
+    frames += action.frames * count;
+  }
+  return frames;
+}
+
 const buildActionSequence = (rolls, seakSpawn) => {
   // TODO: filter actions based on mid-run manip setting
   // Maybe should do that in calling function?
@@ -118,4 +129,4 @@ const buildActionSequence = (rolls, seakSpawn) => {
   return actionSequence;
 }
 
-export { MANIP_ACTIONS, IN_GAME_THRESHOLD, RANDOM_TAG_ACTION, RANDOM_CHAR_ACTION, STAGE_LOAD_ACTION, PORT_ADVANCE_THRESHOLD, findActionSequence, buildActionSequence }
+export { MANIP_ACTIONS, IN_GAME_THRESHOLD, RANDOM_TAG_ACTION, RANDOM_CHAR_ACTION, STAGE_LOAD_ACTION, PORT_ADVANCE_THRESHOLD, findActionSequence, buildActionSequence, manipTimeFrames }
