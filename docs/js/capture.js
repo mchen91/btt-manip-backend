@@ -42,10 +42,10 @@ function labelForKey(key) {
 const RECT_W = 160;
 const RECT_H = 90;
 
-// Classification feature: a moderate-resolution COLOR thumbnail of the
-// rectified card. Downscaling is for noise/alignment robustness, not
-// speed (compare is trivially cheap); we keep it big enough and in color
-// to separate 25 characters. Bump these to trade robustness for detail.
+// Classification feature: a moderate-resolution COLOR thumbnail of the card.
+// We let the GPU area-average the video frame straight down to this grid (see
+// captureCard), so the per-frame pixel readback is only THUMB_W*THUMB_H — big
+// enough and in color to separate 25 characters. Bump to trade CPU for detail.
 const THUMB_W = 64;
 const THUMB_H = 36;
 const FEATURE_LEN = THUMB_W * THUMB_H * 3; // RGB
@@ -68,6 +68,11 @@ const CONFIRM_FRAMES = 2;    // consecutive confident frames on a character befo
 // (character shown / deselected). At ~4 rolls/sec those last ~150ms, so 30fps
 // (~5 samples/state) is comfortable while cutting the loop's CPU vs the vsync rate.
 const SAMPLE_INTERVAL_MS = 1000 / 30;
+// While "executing" (performing the run — by far the longest phase, and when
+// smooth gameplay/recording matters most) we're not reading characters, only
+// waiting for the run to end. That transition is second-scale (OFFCSS_MS), so a
+// much slower sample rate is plenty and keeps our CPU out of the way of the run.
+const SAMPLE_INTERVAL_EXEC_MS = 1000 / 6;
 
 // Recording mode / run detection. While "executing" (after a successful
 // search), we ignore the card entirely until we detect a run has happened:
@@ -78,7 +83,9 @@ const OFFCSS_CONF = 0.50;  // best similarity below this = not a CSS state
 const ONCSS_CONF = 0.62;   // best similarity at/above this = a CSS state again
 const OFFCSS_MS = 900;     // sustained off-CSS this long = a run occurred
 
-const STORAGE_KEY_TEMPLATES = "capture.templates.v2"; // v2: color thumbnails
+// v3: templates now come from the GPU downscale path (captureCard) rather than
+// the old manual area-average, so v2 templates are ignored and must be re-taught.
+const STORAGE_KEY_TEMPLATES = "capture.templates.v3";
 
 /* ------------------------------------------------------------------ */
 /* State                                                              */
@@ -91,11 +98,11 @@ const state = {
   rafId: null,
 
   // Classification templates: { [charIndex]: Uint8ClampedArray(FEATURE_LEN) }
-  // = the averaged raw RGB thumbnail. templateFeatures caches the
-  // normalized (zero-mean, unit-norm) version used for cosine matching.
+  // = the raw RGB thumbnail. templateFeatures caches the normalized
+  // (zero-mean, unit-norm) version used for cosine matching.
   templates: loadTemplates(),
   templateFeatures: {},
-  lastRectImageData: null,
+  lastThumbPx: null, // current frame's RGB feature (reused buffer, len FEATURE_LEN)
   lastMatch: null, // { key, index, isEmpty, similarity, secondSim }
 
   // Auto-entry
@@ -222,59 +229,56 @@ function loop(now) {
   if (!state.running) return;
   state.rafId = requestAnimationFrame(loop);
   const t = now ?? performance.now(); // first call (from startCamera) has no arg
-  if (t - lastSampleTs < SAMPLE_INTERVAL_MS) return;
+  // Slow the loop right down while a run is being performed; go full rate only
+  // when we're actually locating (reading rolls).
+  const interval = (state.autoEntry && state.recordingMode === "executing")
+    ? SAMPLE_INTERVAL_EXEC_MS : SAMPLE_INTERVAL_MS;
+  if (t - lastSampleTs < interval) return;
   lastSampleTs = t;
   captureCard();
   classifyCurrent();
   updateAutoEntry();
 }
 
-// The Virtual Camera feed is already the character card, cropped and
-// axis-aligned in OBS, so there is no perspective to undo: scale the frame
-// straight into a RECT_W x RECT_H buffer and read it back. That buffer is
-// both the on-screen preview and the source for classification.
+// Offscreen THUMB_W x THUMB_H canvas: the GPU downscales the video frame into
+// it so we only ever read back FEATURE_LEN pixels for classification.
+let thumbCanvas = null, thumbCtx = null;
+function ensureThumbCanvas() {
+  if (thumbCtx) return;
+  thumbCanvas = document.createElement("canvas");
+  thumbCanvas.width = THUMB_W;
+  thumbCanvas.height = THUMB_H;
+  thumbCtx = thumbCanvas.getContext("2d", { willReadFrequently: true });
+  thumbCtx.imageSmoothingEnabled = true;      // area-average on downscale
+  thumbCtx.imageSmoothingQuality = "high";
+}
+
+// The Virtual Camera feed is already the character card, cropped and axis-aligned
+// in OBS, so there is no perspective to undo. Two draws: a cheap preview to the
+// visible canvas (no pixel readback), and a hardware downscale straight to the
+// THUMB grid, whose tiny readback is the classification feature.
 function captureCard() {
   const v = state.video;
   if (!v || !v.videoWidth) return;
-  const canvas = els.rawCanvas;
-  if (canvas.width !== RECT_W || canvas.height !== RECT_H) {
-    canvas.width = RECT_W;
-    canvas.height = RECT_H;
+
+  // Preview (display only — never read back).
+  const pv = els.rawCanvas;
+  if (pv.width !== RECT_W || pv.height !== RECT_H) { pv.width = RECT_W; pv.height = RECT_H; }
+  pv.getContext("2d").drawImage(v, 0, 0, RECT_W, RECT_H);
+
+  // Classification feature: GPU downscale -> small readback -> pack RGB (drop A).
+  ensureThumbCanvas();
+  thumbCtx.drawImage(v, 0, 0, THUMB_W, THUMB_H);
+  const rgba = thumbCtx.getImageData(0, 0, THUMB_W, THUMB_H).data;
+  const px = state.lastThumbPx || (state.lastThumbPx = new Uint8ClampedArray(FEATURE_LEN));
+  for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+    px[j] = rgba[i]; px[j + 1] = rgba[i + 1]; px[j + 2] = rgba[i + 2];
   }
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(v, 0, 0, RECT_W, RECT_H);
-  state.lastRectImageData = ctx.getImageData(0, 0, RECT_W, RECT_H);
 }
 
 /* ------------------------------------------------------------------ */
 /* Classification (color thumbnail + zero-mean unit-norm cosine)      */
 /* ------------------------------------------------------------------ */
-
-// Area-averaged downscale of the rectified card to a THUMB_W x THUMB_H
-// RGB thumbnail (Uint8ClampedArray, length FEATURE_LEN). Averaging (not
-// nearest) is what suppresses webcam noise and sub-pixel jitter.
-function makeThumbnail(img) {
-  const sw = img.width, sh = img.height, sd = img.data;
-  const out = new Uint8ClampedArray(FEATURE_LEN);
-  for (let ty = 0; ty < THUMB_H; ty++) {
-    const y0 = Math.floor((ty * sh) / THUMB_H);
-    const y1 = Math.max(y0 + 1, Math.floor(((ty + 1) * sh) / THUMB_H));
-    for (let tx = 0; tx < THUMB_W; tx++) {
-      const x0 = Math.floor((tx * sw) / THUMB_W);
-      const x1 = Math.max(x0 + 1, Math.floor(((tx + 1) * sw) / THUMB_W));
-      let r = 0, g = 0, b = 0, n = 0;
-      for (let y = y0; y < y1; y++) {
-        for (let x = x0; x < x1; x++) {
-          const si = (y * sw + x) * 4;
-          r += sd[si]; g += sd[si + 1]; b += sd[si + 2]; n++;
-        }
-      }
-      const di = (ty * THUMB_W + tx) * 3;
-      out[di] = r / n; out[di + 1] = g / n; out[di + 2] = b / n;
-    }
-  }
-  return out;
-}
 
 // Zero-mean, unit-norm feature vector. Subtracting the mean removes
 // overall brightness; unit-norm removes contrast/exposure. Cosine
@@ -307,14 +311,14 @@ function rebuildTemplateFeatures() {
 }
 
 function classifyCurrent() {
-  if (!state.lastRectImageData) return;
+  if (!state.lastThumbPx) return;
   const keys = Object.keys(state.templateFeatures);
   if (keys.length === 0) {
     els.matchLabel.textContent = "No templates captured yet";
     state.lastMatch = null;
     return;
   }
-  const live = normalizeFeature(makeThumbnail(state.lastRectImageData));
+  const live = normalizeFeature(state.lastThumbPx);
   let best = null, secondSim = -Infinity;
   for (const k of keys) {
     const sim = dot(live, state.templateFeatures[k]);
@@ -494,12 +498,12 @@ function maybeAutoSearchAtQuota() {
 // reference as an average — snapshot the current thumbnail straight into the
 // template.
 function captureTemplate() {
-  if (!state.lastRectImageData) {
+  if (!state.lastThumbPx) {
     setStatus("Nothing to capture yet — start the camera first.");
     return;
   }
   const key = els.charSelect.value; // character index (as string) or EMPTY_KEY
-  const thumb = makeThumbnail(state.lastRectImageData);
+  const thumb = state.lastThumbPx.slice(); // copy: lastThumbPx is reused each frame
   state.templates[key] = thumb;
   state.templateFeatures[key] = normalizeFeature(thumb);
   saveTemplates();
