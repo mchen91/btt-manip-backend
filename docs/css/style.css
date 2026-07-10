@@ -311,8 +311,9 @@ img.stock-icon {
 
 #capture-raw {
     border: 1px solid #ccc;
+    width: 150px;
+    height: 200px;
     max-width: 100%;
-    cursor: crosshair;
 }
 
 #capture-classify {

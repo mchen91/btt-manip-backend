@@ -11,12 +11,10 @@
  *     window.addCharToSeq(index)   -- same as clicking a CSS icon
  *     window.searchForSeed()       -- same as pressing "Search"
  *
- * SCOPE OF THIS STEP (foundation): camera selection, 4-corner
- * calibration, homography rectification of the character card, a live
- * head-on preview, and a feed-stability meter. Classification is
- * scaffolded (template capture + nearest-match readout) but wired to a
- * MANUAL "add detected" button only. Automatic per-roll entry and
- * auto-Search are the next step (see AUTO-ENTRY seam near the bottom).
+ * The video source is an OBS Virtual Camera whose scene is cropped down to
+ * just the character card, so the incoming frame is already head-on and
+ * axis-aligned. There is nothing to calibrate or rectify: we scale the
+ * frame straight into the classification buffer.
  */
 
 // Character index order MUST match addCharToSeq()'s indexing in script.js
@@ -97,7 +95,6 @@ const OFFCSS_CONF = 0.50;  // best similarity below this = not a CSS state
 const ONCSS_CONF = 0.62;   // best similarity at/above this = a CSS state again
 const OFFCSS_MS = 900;     // sustained off-CSS this long = a run occurred
 
-const STORAGE_KEY_CORNERS = "capture.corners.v1";
 const STORAGE_KEY_TEMPLATES = "capture.templates.v2"; // v2: color thumbnails
 
 /* ------------------------------------------------------------------ */
@@ -109,12 +106,6 @@ const state = {
   video: null,
   running: false,
   rafId: null,
-
-  // Calibration: 4 corners of the character card in rawCanvas pixels,
-  // ordered top-left, top-right, bottom-right, bottom-left.
-  corners: loadCorners(),
-  calibrating: false,
-  homography: null, // dest(rect) -> src(raw)
 
   // Classification templates: { [charIndex]: Uint8ClampedArray(FEATURE_LEN) }
   // = the averaged raw RGB thumbnail. templateFeatures caches the
@@ -156,18 +147,6 @@ let els = {};
 /* Persistence                                                        */
 /* ------------------------------------------------------------------ */
 
-function loadCorners() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_CORNERS);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return Array.isArray(parsed) && parsed.length === 4 ? parsed : null;
-  } catch { return null; }
-}
-
-function saveCorners() {
-  localStorage.setItem(STORAGE_KEY_CORNERS, JSON.stringify(state.corners));
-}
-
 function loadTemplates() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_TEMPLATES);
@@ -187,64 +166,6 @@ function saveTemplates() {
   const obj = {};
   for (const k of Object.keys(state.templates)) obj[k] = Array.from(state.templates[k]);
   localStorage.setItem(STORAGE_KEY_TEMPLATES, JSON.stringify(obj));
-}
-
-/* ------------------------------------------------------------------ */
-/* Homography (4-point projective transform)                          */
-/* ------------------------------------------------------------------ */
-
-// Solve H (3x3, h8 = 1) mapping `from[i]` -> `to[i]` for 4 point pairs,
-// via Gaussian elimination on the 8x8 DLT system.
-function computeHomography(from, to) {
-  const A = [];
-  const b = [];
-  for (let i = 0; i < 4; i++) {
-    const [x, y] = from[i];
-    const [X, Y] = to[i];
-    A.push([x, y, 1, 0, 0, 0, -x * X, -y * X]); b.push(X);
-    A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y]); b.push(Y);
-  }
-  const h = solveLinear(A, b); // length 8
-  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
-}
-
-// Gaussian elimination with partial pivoting; solves A x = b (n x n).
-function solveLinear(A, b) {
-  const n = b.length;
-  const M = A.map((row, i) => row.concat(b[i]));
-  for (let col = 0; col < n; col++) {
-    let piv = col;
-    for (let r = col + 1; r < n; r++) {
-      if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
-    }
-    [M[col], M[piv]] = [M[piv], M[col]];
-    const d = M[col][col] || 1e-12;
-    for (let r = 0; r < n; r++) {
-      if (r === col) continue;
-      const f = M[r][col] / d;
-      for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
-    }
-  }
-  // Full (Gauss-Jordan) elimination leaves M[i][i] as the only nonzero
-  // coefficient in row i, so x_i = rhs_i / M[i][i].
-  const x = new Array(n);
-  for (let i = 0; i < n; i++) x[i] = M[i][n] / (M[i][i] || 1e-12);
-  return x;
-}
-
-function applyH(h, x, y) {
-  const w = h[6] * x + h[7] * y + h[8];
-  return [
-    (h[0] * x + h[1] * y + h[2]) / w,
-    (h[3] * x + h[4] * y + h[5]) / w,
-  ];
-}
-
-function rebuildHomography() {
-  if (!state.corners) { state.homography = null; return; }
-  const dst = [[0, 0], [RECT_W, 0], [RECT_W, RECT_H], [0, RECT_H]];
-  // dest(rectified) -> src(raw) so we can inverse-sample the output.
-  state.homography = computeHomography(dst, state.corners);
 }
 
 /* ------------------------------------------------------------------ */
@@ -289,7 +210,6 @@ async function startCamera() {
     state.running = true;
     els.startBtn.disabled = true;
     els.stopBtn.disabled = false;
-    els.calibrateBtn.disabled = false;
     setStatus("Camera running.");
     loop();
   } catch (e) {
@@ -305,7 +225,6 @@ function stopCamera() {
   state.video = null;
   els.startBtn.disabled = false;
   els.stopBtn.disabled = true;
-  els.calibrateBtn.disabled = true;
   setStatus("Camera stopped.");
 }
 
@@ -315,76 +234,33 @@ function stopCamera() {
 
 function loop() {
   if (!state.running) return;
-  drawRawFrame();
-  if (state.homography) {
-    rectifyCard();
-    if (state.collecting) {
-      collectSample();
-    } else {
-      classifyCurrent();
-      updateAutoEntry();
-    }
+  captureCard();
+  if (state.collecting) {
+    collectSample();
+  } else {
+    classifyCurrent();
+    updateAutoEntry();
   }
   state.rafId = requestAnimationFrame(loop);
 }
 
-function drawRawFrame() {
+// The Virtual Camera feed is already the character card, cropped and
+// axis-aligned in OBS, so there is no perspective to undo: scale the frame
+// straight into a RECT_W x RECT_H buffer and read it back. That buffer is
+// both the on-screen preview and the source for classification.
+function captureCard() {
   const v = state.video;
   if (!v || !v.videoWidth) return;
   const canvas = els.rawCanvas;
-  // Size the raw canvas once, capped at 480 wide, preserving aspect.
-  if (canvas.width === 0 || canvas.dataset.sized !== "1") {
-    const w = Math.min(480, v.videoWidth);
-    canvas.width = w;
-    canvas.height = Math.round((w * v.videoHeight) / v.videoWidth);
-    canvas.dataset.sized = "1";
+  if (canvas.width !== RECT_W || canvas.height !== RECT_H) {
+    canvas.width = RECT_W;
+    canvas.height = RECT_H;
   }
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-  if (state.calibrating || state.corners) drawCornerOverlay(ctx);
-}
-
-function drawCornerOverlay(ctx) {
-  const pts = state.corners || [];
-  if (pts.length) {
-    ctx.strokeStyle = "#2bd66b";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    if (pts.length === 4) ctx.closePath();
-    ctx.stroke();
-    ctx.fillStyle = "#2bd66b";
-    pts.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); });
-  }
-}
-
-// Inverse-warp the raw frame's card quad into a head-on RECT_W x RECT_H image.
-function rectifyCard() {
-  const rawCtx = els.rawCanvas.getContext("2d", { willReadFrequently: true });
-  const src = rawCtx.getImageData(0, 0, els.rawCanvas.width, els.rawCanvas.height);
-  const sw = src.width, sh = src.height, sd = src.data;
-
-  const out = new ImageData(RECT_W, RECT_H);
-  const od = out.data;
-  const h = state.homography;
-
-  for (let y = 0; y < RECT_H; y++) {
-    for (let x = 0; x < RECT_W; x++) {
-      const [ux, uy] = applyH(h, x, y);
-      const sx = ux | 0, sy = uy | 0;
-      const di = (y * RECT_W + x) * 4;
-      if (sx >= 0 && sx < sw && sy >= 0 && sy < sh) {
-        const si = (sy * sw + sx) * 4;
-        od[di] = sd[si]; od[di + 1] = sd[si + 1];
-        od[di + 2] = sd[si + 2]; od[di + 3] = 255;
-      } else {
-        od[di + 3] = 255;
-      }
-    }
-  }
-
-  updateStability(out);
-  state.lastRectImageData = out;
+  ctx.drawImage(v, 0, 0, RECT_W, RECT_H);
+  const img = ctx.getImageData(0, 0, RECT_W, RECT_H);
+  updateStability(img);
+  state.lastRectImageData = img;
 }
 
 // Mean absolute luma difference between consecutive rectified frames.
@@ -689,37 +565,12 @@ function maybeAutoSearchAtQuota() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Calibration UI                                                     */
-/* ------------------------------------------------------------------ */
-
-function beginCalibration() {
-  state.calibrating = true;
-  state.corners = [];
-  state.homography = null;
-  setStatus("Click the 4 corners of the character card: top-left, top-right, bottom-right, bottom-left.");
-}
-
-function onRawClick(e) {
-  if (!state.calibrating) return;
-  const rect = els.rawCanvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * (els.rawCanvas.width / rect.width);
-  const y = (e.clientY - rect.top) * (els.rawCanvas.height / rect.height);
-  state.corners.push([x, y]);
-  if (state.corners.length === 4) {
-    state.calibrating = false;
-    saveCorners();
-    rebuildHomography();
-    setStatus("Calibrated. Rectified preview is live.");
-  }
-}
-
-/* ------------------------------------------------------------------ */
 /* Template capture                                                   */
 /* ------------------------------------------------------------------ */
 
 function captureTemplate() {
-  if (!state.homography || !state.lastRectImageData) {
-    setStatus("Nothing to capture yet — start the camera and calibrate first.");
+  if (!state.lastRectImageData) {
+    setStatus("Nothing to capture yet — start the camera first.");
     return;
   }
   if (state.collecting) return; // already sampling
@@ -814,7 +665,6 @@ function init() {
     deviceSelect: document.getElementById("capture-device"),
     startBtn: document.getElementById("capture-start"),
     stopBtn: document.getElementById("capture-stop"),
-    calibrateBtn: document.getElementById("capture-calibrate"),
     rawCanvas: document.getElementById("capture-raw"),
     charSelect: document.getElementById("capture-char"),
     captureTemplateBtn: document.getElementById("capture-template"),
@@ -828,14 +678,11 @@ function init() {
   if (!els.panel) return; // panel not present
 
   populateCharSelect();
-  rebuildHomography();
   rebuildTemplateFeatures();
 
   els.toggle.addEventListener("click", () => els.body.classList.toggle("none"));
   els.startBtn.addEventListener("click", startCamera);
   els.stopBtn.addEventListener("click", stopCamera);
-  els.calibrateBtn.addEventListener("click", beginCalibration);
-  els.rawCanvas.addEventListener("click", onRawClick);
   els.captureTemplateBtn.addEventListener("click", captureTemplate);
   els.autoEntryCheckbox.addEventListener("change", onAutoEntryToggle);
   els.autoSearchCheckbox.addEventListener("change", onAutoSearchToggle);
@@ -847,9 +694,7 @@ function init() {
   const templateCount = Object.keys(state.templates).filter((k) => k !== EMPTY_KEY).length;
   const hasEmpty = EMPTY_KEY in state.templates;
   setStatus(
-    state.corners
-      ? `Ready. Calibration loaded, ${templateCount}/25 characters${hasEmpty ? " + empty" : ""} taught. Start the camera.`
-      : "Ready. Start the camera, then Calibrate."
+    `Ready. ${templateCount}/25 characters${hasEmpty ? " + empty" : ""} taught. Start the camera.`
   );
 }
 
