@@ -358,21 +358,12 @@ img.stock-icon {
     border-radius: 0.3rem;
 }
 
-.capture-mode {
-    font-family: monospace;
-    font-size: 0.85rem;
-    font-weight: bold;
-    color: #888;
-    padding: 0.1rem 0.5rem;
-    border-radius: 0.3rem;
-}
-
-.capture-mode.mode-rec {
+.capture-auto-status.mode-rec {
     color: #1a7f37;
     background-color: #e7f6ec;
 }
 
-.capture-mode.mode-exec {
+.capture-auto-status.mode-exec {
     color: #b3541e;
     background-color: #fbeee2;
 }

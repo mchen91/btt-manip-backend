@@ -347,14 +347,23 @@ function classifyCurrent() {
 /* Auto-entry: roll event detection -> addCharToSeq -> auto-Search     */
 /* ------------------------------------------------------------------ */
 
+// The single status line. It shows the current message and is colour-coded by
+// mode (green = recording, orange = run/not-recording) so the state still reads
+// at a glance without a separate badge.
 function setAutoStatus(msg) {
-  if (els.autoStatus) els.autoStatus.textContent = msg;
+  if (!els.autoStatus) return;
+  els.autoStatus.textContent = msg;
+  let cls = "capture-auto-status";
+  if (state.autoEntry) {
+    cls += state.recordingMode === "executing" ? " mode-exec" : " mode-rec";
+  }
+  els.autoStatus.className = cls;
 }
 
 function onAutoEntryToggle() {
   state.autoEntry = els.autoEntryCheckbox.checked;
   if (state.autoEntry) enterLocating("on — roll a character…");
-  else { updateModeBadge(); setAutoStatus("off"); }
+  else setAutoStatus("off");
 }
 
 function onAutoSearchToggle() {
@@ -369,7 +378,6 @@ function enterExecuting(msg) {
   state.offCssSince = 0;
   state.confirmKey = null;
   state.confirmCount = 0;
-  updateModeBadge();
   setAutoStatus(msg || "seed found — recording paused (performing run)");
 }
 
@@ -384,20 +392,7 @@ function enterLocating(msg) {
   // on the card (e.g. Peach after a run) is never recorded.
   state.lastAddedIndex = -1;
   state.sawEmptySinceAdd = false;
-  updateModeBadge();
   if (msg) setAutoStatus(msg);
-}
-
-function updateModeBadge() {
-  if (!els.modeBadge) return;
-  if (!state.autoEntry) {
-    els.modeBadge.textContent = "—";
-    els.modeBadge.className = "capture-mode";
-    return;
-  }
-  const exec = state.recordingMode === "executing";
-  els.modeBadge.textContent = exec ? "❚❚ run (not recording)" : "● recording";
-  els.modeBadge.className = "capture-mode " + (exec ? "mode-exec" : "mode-rec");
 }
 
 // While executing: detect the run (ROI goes off-CSS) and the return to the
@@ -573,7 +568,6 @@ function init() {
     autoEntryCheckbox: document.getElementById("capture-auto-entry"),
     autoSearchCheckbox: document.getElementById("capture-auto-search"),
     autoStatus: document.getElementById("capture-auto-status"),
-    modeBadge: document.getElementById("capture-mode"),
     status: document.getElementById("capture-status"),
   };
   if (!els.panel) return; // panel not present
