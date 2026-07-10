@@ -155,6 +155,10 @@ function saveTemplates() {
 /* Camera                                                             */
 /* ------------------------------------------------------------------ */
 
+// The OBS Virtual Camera is the intended source; recognise it by label so we
+// can auto-select and auto-start on it.
+const OBS_LABEL_RE = /OBS Virtual Camera/i;
+
 async function listDevices() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -166,9 +170,32 @@ async function listDevices() {
       opt.textContent = cam.label || `Camera ${i + 1}`;
       els.deviceSelect.appendChild(opt);
     });
+    // Prefer the OBS Virtual Camera whenever it's present (labels are only
+    // populated after camera permission is granted).
+    const obs = cams.find((c) => OBS_LABEL_RE.test(c.label));
+    if (obs) els.deviceSelect.value = obs.deviceId;
+    return cams;
   } catch (e) {
     setStatus(`Could not list cameras: ${e.message}`);
+    return [];
   }
+}
+
+// On load, if the OBS Virtual Camera is available, select it and start
+// automatically. Recognising OBS by name needs device labels, which only
+// appear after camera permission is granted — so if we don't have labels yet,
+// prime a throwaway stream to unlock them, then re-list and start.
+async function autoStart() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  let cams = await listDevices();
+  if (!cams.some((c) => c.label)) {
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      tmp.getTracks().forEach((t) => t.stop());
+    } catch { return; } // permission denied / no camera — leave manual start
+    cams = await listDevices();
+  }
+  if (cams.some((c) => OBS_LABEL_RE.test(c.label))) startCamera();
 }
 
 async function startCamera() {
@@ -583,8 +610,8 @@ function init() {
   els.autoSearchCheckbox.addEventListener("change", onAutoSearchToggle);
   watchAppState();
 
-  // Pre-list devices (labels appear after permission is granted).
-  if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) listDevices();
+  // Pre-list devices and auto-start on the OBS Virtual Camera if it's present.
+  autoStart();
 
   const templateCount = Object.keys(state.templates).filter((k) => k !== EMPTY_KEY).length;
   const hasEmpty = EMPTY_KEY in state.templates;
