@@ -28,7 +28,7 @@ Expected outcome: sword odds go from ~1/768 per attempt to ~1/100–150 (calibra
 **Per-poll rolling buffer** (~10s): `{ frame, seed, actionState, actionFrame }` from each delta. Entries carry the same-poll frame+seed pairing, so seed-at-frame lookups are exact.
 
 **Pull detection**:
-- Peach's vegetable-pull action state is character-specific (id > 340, not in the daemon's lookups table). One-time **"learn pull state"** button: user performs a pull in-game; module records the action-state id that appears; persist to localStorage.
+- Peach's vegetable-pull action state is character-specific (not in the daemon's lookups table); measured directly on the game rig as id **352**, hardcoded as `PULL_ACTION_STATE`.
 - On transition into the pull state, back-correct to the exact transition frame using `action_frame` (resets to 1 on transition): transition frame = poll frame − (actionFrame − 1); read the seed for that frame from the buffer.
 - Count pulls per run (run boundary = seed discontinuity off the recent orbit / menu.major change): pull 1 = bomb, pull 2 = turnip, pull 3 = sword slot.
 
@@ -75,4 +75,4 @@ Out of scope: `happysquare` (same treatment trivially later), port-advance-dista
 1. **Headless scoring check** (scratchpad node script; `docs/js/*.js` import cleanly): verify each returned candidate yields bomb-then-sword at the reported offsets by direct `rngAdv`/`rngInt` simulation; verify `p` equals the φ-sum; verify parity with current `searchForEvent` when a single sword offset exists.
 2. **Mock daemon test**: small node WebSocket server in the scratchpad replaying the documented protocol (`hello`/`welcome`/`snapshot`/`delta`) with an LCG-consistent seed stream and scripted action-state transitions; verify datacollect detects pulls, back-corrects frames, computes `C` and outcomes matching constructed truth, and persists/exports correctly.
 3. **End-to-end in preview** (`./run.sh` + preview tools, no camera/daemon): manual seed entry → ranked candidates render, action list matches auto-picked candidate; regression `./run_all_tests.sh`.
-4. **Live validation on the game rig** (user): run daemon, learn pull state, perform a few manip'd runs; confirm measured `C` values are plausible and the computed pull-3 outcomes match what appeared on screen.
+4. **Live validation on the game rig** (user): run daemon, perform a few manip'd runs; confirm measured `C` values are plausible and the computed pull-3 outcomes match what appeared on screen.

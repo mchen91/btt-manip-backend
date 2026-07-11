@@ -58,11 +58,7 @@ In the webapp, expand **📈 Run Data — m-protocol (beta)**:
 
 1. Check **Enable daemon connection**. Expect the status line to reach
    `daemon: attached to Dolphin`. Pick the controller **Port** Peach uses.
-2. **Learn pull state**: click the button, then perform one turnip pull
-   in-game as Peach. Expect `pull state: <id>` with an id > 340 (it's a
-   character-specific action state). Note the id in your report — if it's
-   stable across sessions we can ship it as a default.
-3. Full-loop validation (camera flow as usual, daemon just watching):
+2. Full-loop validation (camera flow as usual, daemon just watching):
    - Locate the seed with 9 random character rolls, select **bomb** or
      **targetprey**, perform the manip, start the run.
    - At the first pull expect status: `pull 1 anchored (N rolls after
@@ -73,11 +69,11 @@ In the webapp, expand **📈 Run Data — m-protocol (beta)**:
      estimate comes from the seed sampled at the pull frame; mid-frame
      sampling can occasionally misclassify. Report the agreement rate over
      ~10 runs — if it's poor, the sampling-offset assumption needs work.
-4. Collect ≥ 20 measured runs (practice endings are fine — measurement
+3. Collect ≥ 20 measured runs (practice endings are fine — measurement
    happens at the pull frame, nothing after it matters). The stats line
    flips to `model ACTIVE for targetprey`, and targetprey searches start
    using the measured mean/σ (shown above the candidate list).
-5. **Export JSON** and sanity-check the distribution: mean near 1899 and σ
+4. **Export JSON** and sanity-check the distribution: mean near 1899 and σ
    near 36 would confirm the year-old spreadsheet; a materially different σ
    is important news either way (it directly scales the displayed
    success rates).
@@ -89,10 +85,11 @@ All in `docs/js/datacollect.js`:
 - `ANCHOR_MAX_ROLLS` (40): raise if pull 1 never anchors even though the
   manip visibly landed (status stays silent). Check the console for errors
   first.
-- Pull transitions missed entirely: confirm the learned pull-state id fires
-  on every pull (watch `player.N.entity.action_state` in `web/test.html`),
-  and check for `lagged` daemon messages (the ring buffer tolerates gaps,
-  but a chronically lagging feed loses transition frames).
+- Pull transitions missed entirely: confirm action-state 352 (Peach's
+  vegetable pull, hardcoded in `PULL_ACTION_STATE`) fires on every pull
+  (watch `player.N.entity.action_state` in `web/test.html`), and check for
+  `lagged` daemon messages (the ring buffer tolerates gaps, but a
+  chronically lagging feed loses transition frames).
 - `frame` vs seed pairing: the collector assumes both paths update in the
   same poll. If C values look quantized/offset by a consistent ~10–20 rolls,
   that's the documented mid-frame sampling bias — fine as long as it's
@@ -102,6 +99,6 @@ All in `docs/js/datacollect.js`:
 
 ## 5. Report back
 
-Summarize: daemon build/attach experience, learned pull-state id, anchor
-rate, est.-outcome agreement rate, number of measurements, measured mean/σ
-vs 1899/36, and any constants you had to change (with the values).
+Summarize: daemon build/attach experience, anchor rate, est.-outcome
+agreement rate, number of measurements, measured mean/σ vs 1899/36, and
+any constants you had to change (with the values).

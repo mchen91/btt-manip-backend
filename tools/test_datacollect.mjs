@@ -110,10 +110,9 @@ console.log(`handlePull: ok (C values ${SWORD_C}, ${TURNIP_C})`);
 state.attempts.length = 0;
 resetStream();
 state.port = 1;
-state.pullStateId = 361; // pretend-learned Peach pull state
-state.learning = false;
 
 const IDLE = 14; // "Wait" general action state
+const PEACH_PULL = 352; // Peach's vegetable-pull action state (hardcoded in datacollect.js)
 
 // Synthetic run: seed timeline keyed by frame. In-run consumption ~10
 // rolls/frame after the bomb; pulls at known frames with known seeds.
@@ -133,9 +132,9 @@ const seedByFrame = (f) => {
   return advance(PB, C3);
 };
 const stateByFrame = (f) => {
-  if (f >= PULL1_FRAME && f < PULL1_FRAME + 8) return 361;
-  if (f >= PULL2_FRAME && f < PULL2_FRAME + 8) return 361;
-  if (f >= PULL3_FRAME && f < PULL3_FRAME + 8) return 361;
+  if (f >= PULL1_FRAME && f < PULL1_FRAME + 8) return PEACH_PULL;
+  if (f >= PULL2_FRAME && f < PULL2_FRAME + 8) return PEACH_PULL;
+  if (f >= PULL3_FRAME && f < PULL3_FRAME + 8) return PEACH_PULL;
   return IDLE;
 };
 
@@ -149,7 +148,7 @@ for (let f = 0; f <= PULL3_FRAME + 20; f++) {
   // action_frame 2 (exercises the back-correction path).
   if (f === PULL2_FRAME) continue;
   const st = stateByFrame(f);
-  const stAge = st === 361
+  const stAge = st === PEACH_PULL
     ? f - [PULL1_FRAME, PULL2_FRAME, PULL3_FRAME].filter((p) => p <= f).pop() + 1
     : 1;
   values = {
@@ -172,25 +171,9 @@ if (state.attempts.length === 1) {
   // only; the pull-2 step records nothing so C is unaffected.
 }
 
-/* --- learning ----------------------------------------------------------- */
-
-state.learning = true;
-values = {
-  'frame': 10000,
-  'match.random_seed': 42,
-  'menu.major': 0x0f,
-  'player.1.entity.action_state': IDLE,
-  'player.1.entity.action_frame': 1,
-};
-onDelta();
-values = { ...values, 'frame': 10001, 'player.1.entity.action_state': 372 };
-onDelta();
-check(state.pullStateId === 372, 'learning captures character-specific state id');
-check(state.learning === false, 'learning disarms after capture');
-
 if (failures > 0) {
   console.error(`\n${failures} failure(s)`);
   process.exit(1);
 }
-console.log('onDelta pipeline + learning: ok');
+console.log('onDelta pipeline: ok');
 console.log('\nAll datacollect tests passed.');

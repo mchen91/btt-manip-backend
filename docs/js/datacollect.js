@@ -19,11 +19,11 @@
  * How a measurement happens:
  *  1. Every daemon delta is sampled into a ring buffer of
  *     { frame, seed, actionState, actionFrame }.
- *  2. A transition into Peach's vegetable-pull action state (an id > 340,
- *     character-specific; taught once via the "learn pull state" button)
- *     marks a pull. action_frame resets to 1 on transition, so the exact
- *     transition frame is (sampleFrame - (actionFrame - 1)); the seed at
- *     that frame is looked up in the ring buffer.
+ *  2. A transition into Peach's vegetable-pull action state (id 352,
+ *     character-specific) marks a pull. action_frame resets to 1 on
+ *     transition, so the exact transition frame is
+ *     (sampleFrame - (actionFrame - 1)); the seed at that frame is looked
+ *     up in the ring buffer.
  *  3. Pull #1 is anchored against the current manip target: its measured
  *     seed must sit a few rolls after the target's event seed. This both
  *     starts an attempt and confirms the manip landed. Pulls then count
@@ -54,16 +54,15 @@ const store = typeof localStorage !== 'undefined'
 /* ------------------------------------------------------------------ */
 
 const STORAGE_KEY_ATTEMPTS = 'manip.rundata.v2';
-const STORAGE_KEY_PULLSTATE = 'manip.pullstate.v1';
 const STORAGE_KEY_ENABLED = 'manip.dc.enabled.v1';
 const STORAGE_KEY_PORT = 'manip.dc.port.v1';
 
 const MAX_ATTEMPTS_STORED = 2000;
 const BUFFER_SAMPLES = 1500; // ~25s of per-frame samples
 
-// General Melee action states end at 340; everything above is
-// character-specific (Peach's vegetable pull lives there).
-const CHAR_SPECIFIC_STATE_MIN = 341;
+// Peach's vegetable-pull action state (character-specific; measured
+// directly on the game rig).
+const PULL_ACTION_STATE = 352;
 
 // Pull #1 must measure within this many rolls after the target event seed
 // to anchor an attempt (stage load consumes 12, the pull itself 2, plus
@@ -86,9 +85,6 @@ const state = {
   enabled: store.getItem(STORAGE_KEY_ENABLED) === '1',
   port: Number(store.getItem(STORAGE_KEY_PORT) || '1'),
 
-  pullStateId: loadPullStateId(),
-  learning: false,
-
   buffer: [], // ring of { frame, seed, actionState, actionFrame }
   lastSampledFrame: -1,
   prevActionState: null,
@@ -104,17 +100,6 @@ let els = {};
 /* ------------------------------------------------------------------ */
 /* Persistence                                                        */
 /* ------------------------------------------------------------------ */
-
-function loadPullStateId() {
-  const raw = store.getItem(STORAGE_KEY_PULLSTATE);
-  const n = raw === null ? NaN : Number(raw);
-  return Number.isFinite(n) ? n : null;
-}
-
-function savePullStateId(id) {
-  state.pullStateId = id;
-  store.setItem(STORAGE_KEY_PULLSTATE, String(id));
-}
 
 function loadAttempts() {
   try {
@@ -222,17 +207,7 @@ function onDelta() {
   state.prevActionState = actionState;
   if (typeof actionState !== 'number' || actionState === prev) return;
 
-  if (state.learning) {
-    if (actionState >= CHAR_SPECIFIC_STATE_MIN) {
-      savePullStateId(actionState);
-      state.learning = false;
-      setStatus(`learned pull state id ${actionState}`);
-      render();
-    }
-    return;
-  }
-
-  if (state.pullStateId !== null && actionState === state.pullStateId) {
+  if (actionState === PULL_ACTION_STATE) {
     onPullDetected(frame, actionFrame);
   }
 }
@@ -394,11 +369,6 @@ function render() {
       : `n=${m.n} · mean ${m.mean.toFixed(1)} · σ ${Number.isFinite(m.sigma) ? m.sigma.toFixed(1) : '—'}`
         + (m.n < 20 ? ' (model activates at n=20)' : ' (model ACTIVE for targetprey)');
   }
-  if (els.pullState) {
-    els.pullState.textContent = state.pullStateId === null
-      ? 'pull state: not learned'
-      : `pull state: ${state.pullStateId}`;
-  }
   drawHistogram();
 }
 
@@ -436,8 +406,6 @@ function init() {
     enable: document.getElementById('dc-enable'),
     port: document.getElementById('dc-port'),
     conn: document.getElementById('dc-conn'),
-    learn: document.getElementById('dc-learn'),
-    pullState: document.getElementById('dc-pullstate'),
     stats: document.getElementById('dc-stats'),
     hist: document.getElementById('dc-hist'),
     status: document.getElementById('dc-status'),
@@ -451,10 +419,6 @@ function init() {
   els.enable.addEventListener('change', onEnableToggle);
   els.port.value = String(state.port);
   els.port.addEventListener('change', onPortChange);
-  els.learn.addEventListener('click', () => {
-    state.learning = true;
-    setStatus('learning: perform one turnip pull in-game…');
-  });
   els.exportBtn.addEventListener('click', exportJson);
   els.clearBtn.addEventListener('click', () => {
     if (!confirm('Clear all recorded run measurements?')) return;
