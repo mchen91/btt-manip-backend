@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="css/style.css"/>
+    <link rel="shortcut icon" href="favicon.ico">
+    <title>Manip Actions Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 1em;
+            box-sizing: border-box;
+        }
+        #viewer-actions {
+            font-size: 2em;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+        #viewer-reset {
+            margin-top: 1.5em;
+            font-size: 1.2em;
+            padding: 0.4em 1.2em;
+            cursor: pointer;
+        }
+        #viewer-swords {
+            margin-top: 1em;
+            font-size: 1.4em;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            text-align: left;
+        }
+        #viewer-swords .sword-header {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="viewer-actions"></div>
+    <div id="viewer-swords"></div>
+    <button id="viewer-reset" type="button" title="Reset the manip page: clears the current seed, next search starts from scratch">Reset</button>
+
+    <script type="module">
+        import { rngAdv, rngInt } from './js/util.js';
+
+        const actionsEl = document.getElementById('viewer-actions');
+        const swordsEl = document.getElementById('viewer-swords');
+
+        const SWORD_SCAN_HORIZON = 5000;
+
+        // Every roll distance k (0..horizon) after the post-bomb seed where a
+        // beamsword would pull. A sword pull consumes two rolls from seed s:
+        //   adv(s)      -> rngInt(., 128) == 0   (item pull)
+        //   adv(adv(s)) -> rngInt(., 6)   == 5   (beamsword)
+        // so offset k needs chain values c_{k+1} and c_{k+2}. One pass down
+        // the seed chain checks every offset with a single rngAdv per step
+        // (~5k advances total) instead of replaying both pull events from
+        // scratch at each offset (~15k).
+        function findSwordOffsets(postBombSeed, horizon) {
+            const offsets = [];
+            let c = rngAdv(postBombSeed);   // c_1
+            let next = rngAdv(c);           // c_2
+            for (let k = 0; k <= horizon; k++) {
+                if (rngInt(c, 128) === 0 && rngInt(next, 6) === 5) {
+                    offsets.push(k);
+                }
+                c = next;
+                next = rngAdv(next);
+            }
+            return offsets;
+        }
+
+        function renderSwords(target) {
+            if (!target || target.item !== 'bomb' || typeof target.postPullSeed !== 'number') {
+                swordsEl.textContent = '';
+                return;
+            }
+            const offsets = findSwordOffsets(target.postPullSeed, SWORD_SCAN_HORIZON);
+            const header = `Sword seeds within ${SWORD_SCAN_HORIZON} rolls of bomb pull:`;
+            const body = offsets.length
+                ? offsets.map((k) => `+${k}`).join('\n')
+                : '(none)';
+            swordsEl.innerHTML = '';
+            const h = document.createElement('div');
+            h.classList.add('sword-header');
+            h.textContent = header;
+            const list = document.createElement('div');
+            list.textContent = body;
+            swordsEl.append(h, list);
+        }
+
+        document.getElementById('viewer-reset').onclick = () => {
+            if (!confirm('Reset seed on the manip machine and begin new search?')) return;
+            fetch('/api/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cmd: 'reset' }),
+            });
+        };
+
+        // EventSource auto-reconnects on drop, so a server restart or wifi
+        // blip recovers without a page reload.
+        const source = new EventSource('/api/actions/stream');
+
+        source.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            actionsEl.textContent = data.text;
+            renderSwords(data.target);
+        };
+    </script>
+</body>
+</html>
