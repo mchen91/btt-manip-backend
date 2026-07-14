@@ -34,10 +34,22 @@
         #viewer-swords .sword-header {
             font-weight: bold;
         }
+        #viewer-run {
+            margin-top: 0.5em;
+            font-size: 1.6em;
+            font-weight: bold;
+            text-align: left;
+        }
+        #viewer-run-detail {
+            font-size: 1.2em;
+            text-align: left;
+        }
     </style>
 </head>
 <body>
     <div id="viewer-actions"></div>
+    <div id="viewer-run"></div>
+    <div id="viewer-run-detail"></div>
     <div id="viewer-swords"></div>
     <button id="viewer-reset" type="button" title="Reset the manip page: clears the current seed, next search starts from scratch">Reset</button>
 
@@ -46,6 +58,10 @@
 
         const actionsEl = document.getElementById('viewer-actions');
         const swordsEl = document.getElementById('viewer-swords');
+
+        // Sword offsets of the current target, kept for the last-run
+        // readout's nearest-offset comparison.
+        let swordOffsets = [];
 
         const SWORD_SCAN_HORIZON = 5000;
 
@@ -74,9 +90,11 @@
         function renderSwords(target) {
             if (!target || target.item !== 'bomb' || typeof target.postPullSeed !== 'number') {
                 swordsEl.textContent = '';
+                swordOffsets = [];
                 return;
             }
             const offsets = findSwordOffsets(target.postPullSeed, SWORD_SCAN_HORIZON);
+            swordOffsets = offsets;
             const header = `Sword seeds within ${SWORD_SCAN_HORIZON} rolls of bomb pull:`;
             const body = offsets.length
                 ? offsets.map((k) => `+${k}`).join('\n')
@@ -108,6 +126,33 @@
             actionsEl.textContent = data.text;
             renderSwords(data.target);
         };
+
+        const runEl = document.getElementById('viewer-run');
+        const runDetailEl = document.getElementById('viewer-run-detail');
+
+        // Last completed run's consumption measurement (fed by
+        // docs/js/datacollect.js at pull #3). Post-run readout only; silent
+        // when that stream never sends.
+        function renderRun(data) {
+            if (typeof data.c !== 'number') return;
+            let delta = '';
+            if (swordOffsets.length) {
+                const nearest = swordOffsets.reduce(
+                    (m, o) => (Math.abs(o - data.c) < Math.abs(m - data.c) ? o : m),
+                    swordOffsets[0]);
+                const d = data.c - nearest;
+                delta = ` · Δ ${d > 0 ? '+' : ''}${d} vs sword +${nearest}`;
+            }
+            runEl.textContent =
+                `last run: C=${data.c} · est. ${data.out || '?'}${delta}`;
+            runDetailEl.textContent = typeof data.mean === 'number'
+                ? `n=${data.n} · mean ${data.mean.toFixed(1)}`
+                    + (typeof data.sigma === 'number' ? ` · σ ${data.sigma.toFixed(1)}` : '')
+                : '';
+        }
+
+        const runSource = new EventSource('/api/run/stream');
+        runSource.onmessage = (e) => renderRun(JSON.parse(e.data));
     </script>
 </body>
 </html>

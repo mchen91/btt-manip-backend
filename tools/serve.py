@@ -16,6 +16,12 @@ Reset button when a manip goes wrong and the seed must be re-found):
   GET  /api/control/stream   SSE; no replay (a stale command must never re-fire
                              when the manip page reloads)
 
+A third channel carries the per-run consumption measurement recorded by
+docs/js/datacollect.js at pull #3 (post-run readout for the viewer):
+
+  POST /api/run              body: JSON {"c": int, ...} -- opaque beyond c
+  GET  /api/run/stream       SSE; replays latest payload on connect
+
 State is in-memory only; a restart just means the viewer waits for the next
 Search. SSE picked over WebSocket so the whole thing stays stdlib-only.
 """
@@ -31,15 +37,17 @@ MAX_BODY = 64 * 1024
 CONTROL_COMMANDS = {'reset'}
 
 _lock = threading.Lock()
-_subscribers = {'actions': [], 'control': []}  # channel -> list[queue.Queue]
-_latest = None  # last actions payload (bytes), replayed to new viewers
+_subscribers = {'actions': [], 'control': [], 'run': []}  # channel -> list[queue.Queue]
+# Channels whose latest payload is replayed to newly connected viewers.
+# 'control' is deliberately absent: a stale command must never re-fire.
+_REPLAY_CHANNELS = {'actions', 'run'}
+_latest = {}  # channel -> last payload (bytes)
 
 
 def _publish(channel, payload_bytes):
-    global _latest
     with _lock:
-        if channel == 'actions':
-            _latest = payload_bytes
+        if channel in _REPLAY_CHANNELS:
+            _latest[channel] = payload_bytes
         subs = list(_subscribers[channel])
     for q in subs:
         q.put(payload_bytes)
@@ -57,6 +65,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._post_actions()
         elif self.path == '/api/control':
             self._post_control()
+        elif self.path == '/api/run':
+            self._post_run()
         else:
             self.send_error(404)
 
@@ -109,11 +119,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
+    def _post_run(self):
+        try:
+            data = self._read_json_body()
+            if data is None:
+                return
+            if not isinstance(data.get('c'), int):
+                raise ValueError('c must be an integer')
+        except (ValueError, KeyError) as e:
+            self.send_error(400, str(e))
+            return
+        data.setdefault('ts', int(time.time() * 1000))
+        _publish('run', json.dumps(data).encode())
+        self.send_response(204)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
     def do_GET(self):
         if self.path == '/api/actions/stream':
             self._serve_stream('actions')
         elif self.path == '/api/control/stream':
             self._serve_stream('control')
+        elif self.path == '/api/run/stream':
+            self._serve_stream('run')
         elif self.path == '/api/actions/latest':
             self._serve_latest()
         else:
@@ -121,7 +149,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def _serve_latest(self):
         with _lock:
-            payload = _latest
+            payload = _latest.get('actions')
         if payload is None:
             self.send_response(204)
             self.send_header('Content-Length', '0')
@@ -142,7 +170,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         q = queue.Queue()
         with _lock:
             _subscribers[channel].append(q)
-            payload = _latest if channel == 'actions' else None
+            payload = _latest.get(channel) if channel in _REPLAY_CHANNELS else None
         try:
             if payload is not None:
                 self._send_event(payload)

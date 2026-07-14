@@ -273,6 +273,7 @@ function handlePull(seedAtPull, frameSlop) {
   };
   state.attempts.push(record);
   saveAttempts();
+  relayRecord(record);
 
   let vsOffsets = '';
   if (t.offsets && t.offsets.length) {
@@ -282,6 +283,19 @@ function handlePull(seedAtPull, frameSlop) {
   }
   setStatus(`recorded C=${c}, est. ${record.out}${vsOffsets}`);
   render();
+}
+
+// Push the finished measurement to the viewer page via tools/serve.py.
+// Post-run readout only (the value exists once pull #3 has happened);
+// fire-and-forget like stream.js — no relay running, no harm.
+function relayRecord(record) {
+  if (typeof document === 'undefined' || typeof fetch !== 'function') return;
+  const m = computeModel();
+  fetch('/api/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...record, n: m.n, mean: m.mean, sigma: m.sigma }),
+  }).catch(() => {});
 }
 
 /* ------------------------------------------------------------------ */
