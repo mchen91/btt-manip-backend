@@ -17,6 +17,14 @@
  * frame straight into the classification buffer.
  */
 
+import {
+  CAMERA_MODE_EXECUTING,
+  CAMERA_MODE_LOCATING,
+  applyCameraMode,
+  cameraConstraintsForMode,
+  shouldDrawPreview,
+} from "./capture-policy.js";
+
 // Character index order MUST match addCharToSeq()'s indexing in script.js
 // (CSS grid, row-major, skipping the two hidden "random" slots).
 const CHARACTER_NAMES = [
@@ -96,6 +104,8 @@ const state = {
   video: null,
   running: false,
   rafId: null,
+  cameraConstraintGeneration: 0,
+  cameraSettings: null,
 
   // Classification templates: { [charIndex]: Uint8ClampedArray(FEATURE_LEN) }
   // = the raw RGB thumbnail. templateFeatures caches the normalized
@@ -114,7 +124,7 @@ const state = {
   confirmCount: 0, // consecutive confident frames on confirmKey
 
   // Recording mode
-  recordingMode: "locating", // "locating" (record rolls) | "executing" (ignore)
+  recordingMode: CAMERA_MODE_LOCATING, // locating (record rolls) | executing (ignore)
   runSeen: false, // has an off-CSS (in-run) period occurred since executing began?
   offCssSince: 0, // timestamp the ROI first went off-CSS (0 = on-CSS)
   searchPending: false, // a search was fired; ignore input until it resolves
@@ -207,7 +217,11 @@ async function startCamera() {
     // the browser hand us a downscaled track and skip decoding megapixels of a
     // feed whose real detail tops out well below this anyway. 320x180 keeps a
     // 2x supersampling margin over RECT_W x RECT_H at ~1/36 the pixels of 1080p.
-    const size = { width: { ideal: 320 }, height: { ideal: 180 } };
+    const size = cameraConstraintsForMode(CAMERA_MODE_LOCATING);
+    // Keep startup permissive: once the stream is live, applyCameraMode sets a
+    // strict maximum. If a camera cannot satisfy that maximum, capture still
+    // works and the status line reports that the optimization was rejected.
+    size.frameRate = { ideal: size.frameRate.ideal };
     const constraints = {
       video: deviceId ? { deviceId: { exact: deviceId }, ...size } : { ...size },
       audio: false,
@@ -225,7 +239,7 @@ async function startCamera() {
     state.running = true;
     els.startBtn.disabled = true;
     els.stopBtn.disabled = false;
-    setStatus("Camera running.");
+    await setCameraMode(effectiveCameraMode());
     loop();
   } catch (e) {
     setStatus(`Camera error: ${e.message}`);
@@ -234,10 +248,12 @@ async function startCamera() {
 
 function stopCamera() {
   state.running = false;
+  state.cameraConstraintGeneration++;
   if (state.rafId) cancelAnimationFrame(state.rafId);
   if (state.stream) state.stream.getTracks().forEach((t) => t.stop());
   state.stream = null;
   state.video = null;
+  state.cameraSettings = null;
   els.startBtn.disabled = false;
   els.stopBtn.disabled = true;
   setStatus("Camera stopped.");
@@ -252,24 +268,61 @@ function stopCamera() {
 // classify — at SAMPLE_INTERVAL_MS. Skipped ticks are nearly free, so on a
 // high-refresh monitor this cuts the loop's CPU proportionally.
 let lastSampleTs = 0;
+function effectiveCameraMode() {
+  return state.autoEntry && state.recordingMode === CAMERA_MODE_EXECUTING
+    ? CAMERA_MODE_EXECUTING
+    : CAMERA_MODE_LOCATING;
+}
+
+function formatCameraSettings(settings) {
+  if (!settings) return "delivered settings unavailable";
+  const size = settings.width && settings.height
+    ? `${settings.width}×${settings.height}`
+    : "size unknown";
+  const fps = Number.isFinite(settings.frameRate)
+    ? `${Math.round(settings.frameRate * 10) / 10} fps`
+    : "fps unknown";
+  return `${size} @ ${fps}`;
+}
+
+async function setCameraMode(mode) {
+  const track = state.stream && state.stream.getVideoTracks()[0];
+  if (!track) return;
+  const generation = ++state.cameraConstraintGeneration;
+  try {
+    const settings = await applyCameraMode(track, mode);
+    if (generation !== state.cameraConstraintGeneration) return;
+    state.cameraSettings = settings;
+    setStatus(`Camera running: ${formatCameraSettings(settings)} (${mode}).`);
+  } catch (e) {
+    if (generation !== state.cameraConstraintGeneration) return;
+    state.cameraSettings = typeof track.getSettings === "function" ? track.getSettings() : null;
+    setStatus(
+      `Camera running: ${formatCameraSettings(state.cameraSettings)}. ` +
+      `${mode} frame-rate limit unavailable (${e.message}).`,
+    );
+  }
+}
+
 function loop(now) {
   if (!state.running) return;
   state.rafId = requestAnimationFrame(loop);
   const t = now ?? performance.now(); // first call (from startCamera) has no arg
   // Slow the loop right down while a run is being performed; go full rate only
   // when we're actually locating (reading rolls).
-  const interval = (state.autoEntry && state.recordingMode === "executing")
+  const mode = effectiveCameraMode();
+  const interval = mode === CAMERA_MODE_EXECUTING
     ? SAMPLE_INTERVAL_EXEC_MS : SAMPLE_INTERVAL_MS;
   if (t - lastSampleTs < interval) return;
   lastSampleTs = t;
-  captureCard();
+  captureCard(shouldDrawPreview(mode));
   classifyCurrent();
   updateAutoEntry();
 }
 
 // Offscreen THUMB_W x THUMB_H canvas: the GPU downscales the video frame into
 // it so we only ever read back FEATURE_LEN pixels for classification.
-let thumbCanvas = null, thumbCtx = null;
+let thumbCanvas = null, thumbCtx = null, previewCtx = null;
 function ensureThumbCanvas() {
   if (thumbCtx) return;
   thumbCanvas = document.createElement("canvas");
@@ -284,14 +337,20 @@ function ensureThumbCanvas() {
 // in OBS, so there is no perspective to undo. Two draws: a cheap preview to the
 // visible canvas (no pixel readback), and a hardware downscale straight to the
 // THUMB grid, whose tiny readback is the classification feature.
-function captureCard() {
+function captureCard(drawPreview) {
   const v = state.video;
   if (!v || !v.videoWidth) return;
 
   // Preview (display only — never read back).
-  const pv = els.rawCanvas;
-  if (pv.width !== RECT_W || pv.height !== RECT_H) { pv.width = RECT_W; pv.height = RECT_H; }
-  pv.getContext("2d").drawImage(v, 0, 0, RECT_W, RECT_H);
+  if (drawPreview) {
+    const pv = els.rawCanvas;
+    if (pv.width !== RECT_W || pv.height !== RECT_H) {
+      pv.width = RECT_W;
+      pv.height = RECT_H;
+    }
+    if (!previewCtx) previewCtx = pv.getContext("2d");
+    previewCtx.drawImage(v, 0, 0, RECT_W, RECT_H);
+  }
 
   // Classification feature: GPU downscale -> small readback -> pack RGB (drop A).
   ensureThumbCanvas();
@@ -390,7 +449,10 @@ function setAutoStatus(msg) {
 function onAutoEntryToggle() {
   state.autoEntry = els.autoEntryCheckbox.checked;
   if (state.autoEntry) enterLocating("on — roll a character…");
-  else setAutoStatus("off");
+  else {
+    setCameraMode(CAMERA_MODE_LOCATING);
+    setAutoStatus("off");
+  }
 }
 
 function onAutoSearchToggle() {
@@ -400,16 +462,17 @@ function onAutoSearchToggle() {
 // --- Recording-mode transitions ------------------------------------------
 
 function enterExecuting(msg) {
-  state.recordingMode = "executing";
+  state.recordingMode = CAMERA_MODE_EXECUTING;
   state.runSeen = false;
   state.offCssSince = 0;
   state.confirmKey = null;
   state.confirmCount = 0;
+  setCameraMode(CAMERA_MODE_EXECUTING);
   setAutoStatus(msg || "seed found — recording paused (performing run)");
 }
 
 function enterLocating(msg) {
-  state.recordingMode = "locating";
+  state.recordingMode = CAMERA_MODE_LOCATING;
   state.runSeen = false;
   state.offCssSince = 0;
   state.searchPending = false;
@@ -419,6 +482,7 @@ function enterLocating(msg) {
   // on the card (e.g. Peach after a run) is never recorded.
   state.lastAddedIndex = -1;
   state.sawEmptySinceAdd = false;
+  setCameraMode(CAMERA_MODE_LOCATING);
   if (msg) setAutoStatus(msg);
 }
 
@@ -444,7 +508,7 @@ function updateRunTransition(now) {
 function updateAutoEntry() {
   if (!state.autoEntry) return;
 
-  if (state.recordingMode === "executing") {
+  if (state.recordingMode === CAMERA_MODE_EXECUTING) {
     updateRunTransition(performance.now());
     return;
   }

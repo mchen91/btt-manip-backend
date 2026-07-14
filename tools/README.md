@@ -58,8 +58,11 @@ verifying `api.findSeed(chars) == next^17(min(cvp_search(chars)))` for every tes
 Expect `C++ oracle: OK`.
 
 ## Files
+
 - [`gen_charrss_constants.py`](gen_charrss_constants.py) — offline basis generator + gate (committed tool).
 - [`validate_charrss.py`](validate_charrss.py) — high-volume standalone Python RSS validation.
 - [`validate_cpp_oracle.py`](validate_cpp_oracle.py) — Python ↔ C++ brute-force oracle cross-validation.
 - [`charrss_difftest.mjs`](charrss_difftest.mjs) — Node differential test for [`charrss.js`](../docs/js/charrss.js).
 - [`_dump_anchors.py`](_dump_anchors.py) — dumps [`charrss.py`](../charrss.py) `cvp_search` reference anchors to `temp/` for cross-impl.
+- [`test_capture_perf.mjs`](test_capture_perf.mjs) — verifies live-capture locating/executing frame-rate constraints and preview suppression.
+- [`monitor_windows_perf.ps1`](monitor_windows_perf.ps1) — samples Windows CPU, GPU engines, memory, and OBS lag summaries for Dolphin/OBS/Edge A/B measurements.
