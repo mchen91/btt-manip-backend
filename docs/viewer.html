@@ -63,21 +63,26 @@
         // readout's nearest-offset comparison.
         let swordOffsets = [];
 
-        const SWORD_SCAN_HORIZON = 5000;
+        const SWORD_SCAN_MIN = 1500;
+        const SWORD_SCAN_MAX = 2500;
 
-        // Every roll distance k (0..horizon) after the post-bomb seed where a
+        // Every roll distance k in the requested range after the post-bomb seed where a
         // beamsword would pull. A sword pull consumes two rolls from seed s:
         //   adv(s)      -> rngInt(., 128) == 0   (item pull)
         //   adv(adv(s)) -> rngInt(., 6)   == 5   (beamsword)
         // so offset k needs chain values c_{k+1} and c_{k+2}. One pass down
         // the seed chain checks every offset with a single rngAdv per step
-        // (~5k advances total) instead of replaying both pull events from
-        // scratch at each offset (~15k).
-        function findSwordOffsets(postBombSeed, horizon) {
+        // (~2.5k advances total) instead of replaying both pull events from
+        // scratch at each offset.
+        function findSwordOffsets(postBombSeed, minOffset, maxOffset) {
             const offsets = [];
             let c = rngAdv(postBombSeed);   // c_1
             let next = rngAdv(c);           // c_2
-            for (let k = 0; k <= horizon; k++) {
+            for (let k = 0; k < minOffset; k++) {
+                c = next;
+                next = rngAdv(next);
+            }
+            for (let k = minOffset; k <= maxOffset; k++) {
                 if (rngInt(c, 128) === 0 && rngInt(next, 6) === 5) {
                     offsets.push(k);
                 }
@@ -93,9 +98,13 @@
                 swordOffsets = [];
                 return;
             }
-            const offsets = findSwordOffsets(target.postPullSeed, SWORD_SCAN_HORIZON);
+            const offsets = findSwordOffsets(
+                target.postPullSeed,
+                SWORD_SCAN_MIN,
+                SWORD_SCAN_MAX,
+            );
             swordOffsets = offsets;
-            const header = `Sword seeds within ${SWORD_SCAN_HORIZON} rolls of bomb pull:`;
+            const header = `Sword seeds ${SWORD_SCAN_MIN}-${SWORD_SCAN_MAX} rolls after bomb pull:`;
             const body = offsets.length
                 ? offsets.map((k) => `+${k}`).join('\n')
                 : '(none)';
