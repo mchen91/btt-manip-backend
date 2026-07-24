@@ -11,6 +11,6 @@ fail() { echo "[!!] $*" >&2; exit 1; }
 
 # Static site (exactly what GitHub Pages serves from /docs) plus the
 # action-stream relay endpoints -- see tools/serve.py.
-# Cache-Control: no-cache makes the browser revalidate every file, so a git
-# pull never leaves the page running a mix of old and new JS modules.
+# HTML and JS revalidate so a git pull never leaves the page running mixed
+# versions; stable image assets get a one-week browser cache in serve.py.
 exec python3 "$SCRIPT_DIR/tools/serve.py" "$PORT" "$DOCS_DIR"

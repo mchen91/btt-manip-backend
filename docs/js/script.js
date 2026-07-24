@@ -1,37 +1,11 @@
 import { findSeedDifference, formatHex, isInt, isHex, rngAdv, rngInt } from './util.js';
 import { MANIP_ACTIONS, PORT_ADVANCE_THRESHOLD, STAGE_LOAD_ACTION, buildActionSequence, manipTimeFrames } from './rolls.js';
-import { EVENT_SEARCH_MAX_ITERATIONS, DEFAULT_RUN_MODEL, searchForEvent, findScoredCandidates, buildCharacterEvents, buildPullEventList } from './event.js';
+import { EVENT_SEARCH_MAX_ITERATIONS, searchForEvent, findScoredCandidates, buildCharacterEvents, buildPullEventList } from './event.js';
+import { STOCK_ICONS } from './characters.js';
+import { CURRENT_PULL_MODEL } from './pull-model.js';
 
 console.log('Version 1.0.1');
 /* Constants */
-const STOCK_ICONS = [
-	"img/DrMarioBlack.png",
-	"img/MarioOriginal.png",
-	"img/LuigiOriginal.png",
-	"img/BowserOriginal.png",
-	"img/PeachOriginal.png",
-	"img/YoshiOriginal.png",
-	"img/DonkeyKongOriginal.png",
-	"img/CaptainFalconOriginal.png",
-	"img/GanondorfOriginal.png",
-	"img/FalcoOriginal.png",
-	"img/FoxOriginal.png",
-	"img/NessOriginal.png",
-	"img/IceClimbersOriginal.png",
-	"img/KirbyOriginal.png",
-	"img/SamusOriginal.png",
-	"img/ZeldaOriginal.png",
-	"img/LinkGreen.png",
-	"img/YoungLinkGreen.png",
-	"img/PichuOriginal.png",
-	"img/PikachuOriginal.png",
-	"img/JigglyPuffOriginal.png",
-	"img/MewtwoOriginal.png",
-	"img/Game & Watch Original.png",
-	"img/MarthOriginal.png",
-	"img/RoyOriginal.png",
-];
-
 const CSS_ICONS = [
   [
     "img/css_doc.png",
@@ -98,6 +72,28 @@ let isFirstSearch = true;
 let lastSeed = -1;
 let searchCount = 0;
 let keySeq = [];
+let appPhase = 'recording';
+
+function getAppState() {
+  const quota = isFirstSearch ? FIRST_SEARCH_MIN_CHARS : SUCCESSIVE_SEARCH_MIN_CHARS;
+  return {
+    phase: appPhase,
+    characters: charSeq.slice(),
+    quota,
+    remaining: Math.max(0, quota - charSeq.length),
+  };
+}
+
+function publishAppState() {
+  window.dispatchEvent(new CustomEvent('manipstatechange', { detail: getAppState() }));
+}
+
+function setAppPhase(phase) {
+  if (!['recording', 'searching', 'ready', 'running'].includes(phase)) return;
+  if (appPhase === phase) return;
+  appPhase = phase;
+  publishAppState();
+}
 
 // Info about the most recent manip target, exposed read-only for the
 // m-protocol data collector (datacollect.js). The collector uses
@@ -110,30 +106,39 @@ let lastTargetInfo = null;
 // success rate. Empirical: ~7s per cycle.
 const ATTEMPT_OVERHEAD_FRAMES = 7 * 60;
 
-// Run-consumption model for targetprey scoring: measured (from data
-// collection) once enough samples exist, else the spreadsheet-era default.
+// Pull-consumption model for targetprey scoring. The current checked-in model
+// is rebuilt from data/pull-samples.csv. The old live collector exposes one
+// combined distribution, so it must not replace the separate early/late
+// routes; a future labeled collector can expose getMeasuredPullModel instead.
 function getRunModel() {
-  if (typeof window.getMeasuredRunModel === 'function') {
-    const m = window.getMeasuredRunModel();
-    if (m && m.n >= 20) return { mean: m.mean, sigma: m.sigma, n: m.n, source: 'measured' };
-    if (m) return { ...DEFAULT_RUN_MODEL, source: 'default', measuredN: m.n };
+  if (typeof window.getMeasuredPullModel === 'function') {
+    const measured = window.getMeasuredPullModel();
+    if (measured?.routes?.length >= 2) {
+      return { ...measured, source: 'measured multi-seed' };
+    }
   }
-  return { ...DEFAULT_RUN_MODEL, source: 'default' };
+  return {
+    ...CURRENT_PULL_MODEL,
+    source: CURRENT_PULL_MODEL.isPilot
+      ? 'pilot dataset'
+      : 'fitted multi-seed',
+  };
 }
 
 
-function reset(forceReset = false) {
-  if (forceReset || confirm('Reset current seed and begin new search?')) {
-    // Reset state data
-    charSeq = [];
-    isFirstSearch = true;
-    lastSeed = -1;
+function reset() {
+  // Reset state data
+  charSeq = [];
+  isFirstSearch = true;
+  lastSeed = -1;
+  lastTargetInfo = null;
+  appPhase = 'recording';
 
-    // Clear UI
-    clearSeq();
-    clearResults();
-    clearManualSeed();
-  }
+  // Clear UI
+  clearSeq();
+  clearResults();
+  clearManualSeed();
+  window.dispatchEvent(new CustomEvent('manipreset'));
 }
 
 function incrementSearchCount() {
@@ -253,15 +258,6 @@ function appendCharIcon(characterIndex) {
   parent.appendChild(createCharIcon(characterIndex));
 }
 
-function buildCharIconList() {
-  let parent = document.getElementById('char-seq-container');
-  parent.innerHTML = '';
-
-  for (let i = 0; i < charSeq.length; i++) {
-    parent.appendChild(createCharIcon(charSeq[i]));
-  }
-}
-
 function updateCharSeqDisplay() {
   let count = document.getElementById('character-count');
 
@@ -286,10 +282,15 @@ function updateCharSeqDisplay() {
   // Also update the button here
   let searchButton = document.getElementById('search-button');
   searchButton.disabled = (charSeq.length < min);
+  publishAppState();
 }
 
 
 function addCharToSeq(characterIndex) {
+  // Manual entry is also a reliable signal that the prior run is over, even
+  // when live capture (and therefore automatic run detection) is disabled.
+  appPhase = 'recording';
+
   // Keep a rolling buffer no longer than the current search's max length.
   let maxChars = isFirstSearch ? FIRST_SEARCH_MAX_CHARS : SUCCESSIVE_SEARCH_MAX_CHARS;
   if (charSeq.length >= maxChars) {
@@ -316,10 +317,10 @@ function addCharToSeq(characterIndex) {
 }
 
 function undoChar() {
-  // Remove last char and refresh UI
+  if (charSeq.length === 0) return;
   charSeq.pop();
-
-  buildCharIconList();
+  const parent = document.getElementById('char-seq-container');
+  if (parent.lastChild) parent.removeChild(parent.lastChild);
   updateCharSeqDisplay();
 }
 
@@ -422,8 +423,7 @@ function processGenericPull(seed, summary, mismatch, spawnCondition, selectedIte
 function processTargetprey(seed, summary) {
   const model = getRunModel();
   const candidates = findScoredCandidates(seed, {
-    mean: model.mean,
-    sigma: model.sigma,
+    model,
     horizon: PORT_ADVANCE_THRESHOLD,
     maxCandidates: 6,
   });
@@ -448,10 +448,11 @@ function processTargetprey(seed, summary) {
 }
 
 function describeModel(model) {
-  const src = model.source === 'measured'
-    ? `measured (n=${model.n})`
-    : `default${model.measuredN ? ` — only ${model.measuredN} measured samples so far` : ''}`;
-  return `Run model: ${src} · mean ${Math.round(model.mean)} · σ ${Number(model.sigma).toFixed(1)}`;
+  const routes = model.routes
+    .map((route) => `${route.label} μ${Math.round(route.mean)} (n=${route.n})`)
+    .join(' · ');
+  const warning = model.isPilot ? ' · absolute odds uncalibrated' : '';
+  return `Pull model: ${model.source} · ${routes} · shared σ${model.sharedSigma.toFixed(1)}${warning}`;
 }
 
 function displayCandidates(summary, ranked, model) {
@@ -470,12 +471,24 @@ function displayCandidates(summary, ranked, model) {
     const manipStr = c.manipFrames != null
       ? `manip ~${(c.manipFrames / 60).toFixed(1)}s`
       : 'port advance';
+    const selected = c.pulls.find((pull) => pull.id === c.recommendedPull);
+    const route = model.routes.find((entry) => entry.id === c.recommendedPull);
     const oneIn = c.p > 0 ? Math.round(1 / c.p) : Infinity;
-    const offsetsStr = c.offsets
-      .map((o) => `${o - model.mean >= 0 ? '+' : ''}${Math.round(o - model.mean)}`)
+    const oddsLabel = model.isPilot ? 'pilot' : 'estimated';
+    const offsetsStr = selected.offsets
+      .map((offset) => {
+        const delta = Math.round(offset - route.mean);
+        return `${delta >= 0 ? '+' : ''}${delta}`;
+      })
       .join(', ');
+    const alternatives = c.pulls
+      .filter((pull) => pull.id !== c.recommendedPull && pull.p > 0)
+      .map((pull) => `${pull.label} ~1 in ${Math.round(1 / pull.p)}`)
+      .join(' · ');
     row.textContent =
-      `${c.interval} rolls · ${manipStr} · sword ${offsetsStr} from center · ~1 in ${oneIn} runs`;
+      `${c.interval} rolls · ${manipStr} · use ${selected.label.toUpperCase()} · `
+      + `sword ${offsetsStr} from center · ${oddsLabel} ~1 in ${oneIn}`
+      + (alternatives ? ` · ${alternatives}` : '');
 
     row.onclick = () => {
       list.querySelectorAll('.candidate-row').forEach((r) => r.classList.remove('selected'));
@@ -502,12 +515,22 @@ function targetCandidate(c, model) {
     postPullSeed: c.postBombSeed,
     interval: c.interval,
     offsets: c.offsets.slice(),
+    pulls: c.pulls.map((pull) => ({
+      id: pull.id,
+      offsets: pull.offsets.slice(),
+      p: pull.p,
+    })),
+    recommendedPull: c.recommendedPull,
     p: c.p,
-    model: { mean: model.mean, sigma: model.sigma, source: model.source },
+    model: {
+      routes: model.routes.map(({ id, mean, sigma }) => ({ id, mean, sigma })),
+      source: model.source,
+    },
     ts: Date.now(),
   };
   console.log('Targeting candidate: 0x' + formatHex(c.seed)
-    + ' interval ' + c.interval + ' p ' + c.p.toFixed(5));
+    + ' interval ' + c.interval + ' pull ' + c.recommendedPull
+    + ' p ' + c.p.toFixed(5));
 }
 
 // Found seed, now to search for an event
@@ -542,12 +565,15 @@ function processSeed(seed) {
     if (found) {
       isFirstSearch = false; // Update flag for future searches
       incrementSearchCount(); // Track searches because that's fun :)
+      appPhase = 'ready';
+    } else {
+      appPhase = 'recording';
     }
   } else {
     clearResults();
     seedSpan.innerHTML = 'Not Found';
     alert('Seed not found');
-    reset(true);
+    reset();
   }
 
   // Clear character sequence + manual entry
@@ -562,6 +588,7 @@ function searchForSeed() {
   if (validateManualSeed(manualSeed)) {
     // Search for the seed, lol
     clearResults();
+    setAppPhase('searching');
     let seed = parseInt(manualSeed, 16);
     processSeed(seed);
     clearManualSeed();
@@ -578,9 +605,11 @@ function searchForSeed() {
   // Validate char seq length
   if (charSeq.length < SUCCESSIVE_SEARCH_MIN_CHARS) {
     alert('Please enter more characters');
+    return;
   }
   
   // Do our own search with the char seq!
+  setAppPhase('searching');
   let characterEvents = buildCharacterEvents(charSeq);
 
   // Find next seed using characters + last seed detected
@@ -593,6 +622,7 @@ function searchForSeed() {
 
     processSeed(seed);
   } else {
+    setAppPhase('recording');
     alert(`Character sequence not found after searching ${EVENT_SEARCH_MAX_ITERATIONS} seeds`);
   }
 }
@@ -635,12 +665,14 @@ function searchForNewSeed() {
   const seq = charSeq.slice();
 
   // Disable search during query + indicate searching
+  setAppPhase('searching');
   document.getElementById('search-button').disabled = true;
   document.getElementById('seed-span').innerHTML = 'Searching...';
 
   const handleSeed = (seed) => {
     clearResults();
     if (!isInt(seed)) {
+      setAppPhase('recording');
       alert(`Error processing seed: ${seed}`);
     } else {
       processSeed(seed);
@@ -648,11 +680,12 @@ function searchForNewSeed() {
   };
   const handleError = (error) => {
     clearResults();
+    setAppPhase('recording');
     alert(`Error Executing Search. ${error}`);
     console.log('Search error: ' + error);
     console.log(error);
   };
-  const done = () => { document.getElementById('search-button').disabled = false; };
+  const done = updateCharSeqDisplay;
 
   clientSearchForSeed(seq).then(handleSeed).catch(handleError).finally(done);
 }
@@ -731,6 +764,8 @@ window.addCharToSeq = addCharToSeq;
 // the model used for FUTURE searches (via window.getMeasuredRunModel) and
 // never feeds memory-derived state into the current run's manip.
 window.getLastTargetInfo = () => lastTargetInfo;
+window.getManipAppState = getAppState;
+window.setManipAppPhase = setAppPhase;
 
 addEventListener('keyup', (event) => {
   keySeq.push(event.code)

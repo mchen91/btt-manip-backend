@@ -7,7 +7,7 @@
 #   RSS_COUNT  random seeds for the Python RSS validation (default 5000)
 #
 # Requires: Python 3 with fractions, Node (ESM support).
-# Step 4 (C++ oracle) requires the compiled rng.so; it is skipped gracefully if absent.
+# The C++ oracle step requires the compiled rng.so; it is skipped gracefully if absent.
 
 set -eo pipefail
 
@@ -30,25 +30,34 @@ run_step() {
     echo ""
 }
 
-run_step "[1/7] Python RSS validation" \
+run_step "[1/10] Pull model data is current" \
+    python3 tools/fit_pull_samples.py --check
+
+run_step "[2/10] Python unit tests" \
+    python3 -m unittest discover -s tools -p 'test_*.py'
+
+run_step "[3/10] Python RSS validation" \
     python3 tools/validate_charrss.py "$RSS_COUNT"
 
-run_step "[2/7] Generate cross-impl fixture (temp/charrss_anchors.json)" \
+run_step "[4/10] Generate cross-impl fixture (temp/charrss_anchors.json)" \
     python3 tools/_dump_anchors.py 200
 
-run_step "[3/7] JS differential test" \
+run_step "[5/10] JS differential test" \
     node tools/charrss_difftest.mjs 3000
 
-run_step "[4/7] Python <=> C++ brute force validation" \
+run_step "[6/10] Python <=> C++ brute force validation" \
     python3 tools/validate_cpp_oracle.py 1000
 
-run_step "[5/7] Targetprey candidate scoring" \
+run_step "[7/10] Targetprey candidate scoring" \
     node tools/test_scoring.mjs 200
 
-run_step "[6/7] m-protocol data collector" \
+run_step "[8/10] Pull-transition tracker" \
+    node tools/test_pull_probe.mjs
+
+run_step "[9/10] m-protocol data collector" \
     node tools/test_datacollect.mjs
 
-run_step "[7/7] Live-capture performance policy" \
+run_step "[10/10] Live-capture performance policy" \
     node tools/test_capture_perf.mjs
 
 echo "=== Results: $PASS passed, $FAIL failed ==="

@@ -1,4 +1,9 @@
 import { rngAdv, rngInt, findSeedDifference } from './util.js'
+import {
+  CURRENT_PULL_MODEL,
+  pullSearchRanges,
+  scorePullOptions,
+} from './pull-model.js';
 
 /* RNG Event Classes */
 class RngEvent {
@@ -95,15 +100,6 @@ class OptionEvent extends RngEvent {
 
 const EVENT_SEARCH_MAX_ITERATIONS = 1000000; // 0x100000000 for full range
 
-// Fallback bomb->sword run-consumption model, measured from trial runs (see
-// the spreadsheet linked in buildPullEventList). Superseded at runtime by the
-// live model from data collection (datacollect.js) once enough samples exist.
-const DEFAULT_RUN_MODEL = { mean: 1899, sigma: 36, n: 0 };
-
-// Standard normal PDF.
-const normalPdf = (x) => Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
-
-
 const seedYieldsEvents = (seed, events) => {
   for (let i = 0; i < events.length; i++) {
     let [success, resultSeed] = events[i].resultsFromSeed(seed);
@@ -148,24 +144,23 @@ const searchForEvent = (events, startSeed) => {
 // Scored bomb->sword candidate search (targetprey).
 //
 // Enumerates seeds from `startSeed` where the next pull is a bomb, and for
-// each one scans the ENTIRE consumption window [mean - 4σ, mean + 4σ] after
-// the post-bomb seed, collecting every offset at which a sword would pull.
+// each one scans every disjoint pull-consumption range after the post-bomb
+// seed, collecting every offset at which a sword would pull.
 // (The RangeEvent used by the legacy targetprey path stops at the first
 // sword, so it can neither see a second sword in the window nor report where
 // the sword sits relative to the consumption distribution.)
 //
-// Each candidate is scored with the per-run success probability: the run's
-// RNG consumption is ~N(mean, sigma^2), and a run succeeds when consumption
-// lands exactly on a sword offset, so p = Σ_offsets φ((offset-mean)/σ)/σ.
+// Probability details live behind pull-model.js. At present it calculates
+// exact integer-bin mass for separate early/late normal models and recommends
+// the better pull. This scanner only knows their ranges and score result.
 //
 // Returns up to `maxCandidates` candidates with interval <= horizon, each:
-//   { seed, interval, postBombSeed, offsets: [..], p }
+//   { seed, interval, postBombSeed, pulls: [..], recommendedPull, p }
 // If none of them contains a sword (p > 0), the search continues past the
 // horizon for the first candidate that does, so callers always have
 // something to target (mirroring the legacy first-match behaviour).
 const findScoredCandidates = (startSeed, opts = {}) => {
-  const mean = opts.mean ?? DEFAULT_RUN_MODEL.mean;
-  const sigma = opts.sigma ?? DEFAULT_RUN_MODEL.sigma;
+  const model = opts.model ?? CURRENT_PULL_MODEL;
   const horizon = opts.horizon ?? 5000;
   const maxCandidates = opts.maxCandidates ?? 6;
 
@@ -179,8 +174,7 @@ const findScoredCandidates = (startSeed, opts = {}) => {
     new IntEvent(6, 5, 5),     // sword
   ];
 
-  const lo = Math.max(0, Math.round(mean - 4 * sigma));
-  const hi = Math.round(mean + 4 * sigma);
+  const ranges = pullSearchRanges(model);
 
   const candidates = [];
   let seed = startSeed;
@@ -190,21 +184,35 @@ const findScoredCandidates = (startSeed, opts = {}) => {
 
     const [isBomb, postBombSeed] = seedYieldsEvents(seed, bombEvents);
     if (isBomb) {
-      // Walk the window once, checking each offset for a sword pull.
-      let s = postBombSeed;
-      for (let i = 0; i < lo; i++) s = rngAdv(s);
-      const offsets = [];
-      let p = 0;
-      for (let offset = lo; offset <= hi; offset++) {
-        const [isSword] = seedYieldsEvents(s, swordEvents);
-        if (isSword) {
-          offsets.push(offset);
-          p += normalPdf((offset - mean) / sigma) / sigma;
+      const offsetsByPull = {};
+      for (const range of ranges) {
+        // Ranges are deliberately walked independently: no probability is
+        // assigned to the gap between early and late pulls.
+        let s = postBombSeed;
+        for (let i = 0; i < range.lo; i++) s = rngAdv(s);
+        const offsets = [];
+        for (let offset = range.lo; offset <= range.hi; offset++) {
+          const [isSword] = seedYieldsEvents(s, swordEvents);
+          if (isSword) offsets.push(offset);
+          s = rngAdv(s);
         }
-        s = rngAdv(s);
+        offsetsByPull[range.id] = offsets;
       }
-      if (offsets.length > 0) {
-        candidates.push({ seed, interval, postBombSeed, offsets, p });
+
+      const score = scorePullOptions(offsetsByPull, model);
+      if (score.p > 0) {
+        const recommended = score.pulls.find(
+          (pull) => pull.id === score.recommendedPull,
+        );
+        candidates.push({
+          seed,
+          interval,
+          postBombSeed,
+          ...score,
+          // Compatibility for measurement/display code that only needs the
+          // offsets of the pull the runner will actually use.
+          offsets: recommended?.offsets ?? [],
+        });
       }
     }
 
@@ -337,4 +345,11 @@ const buildPullEventList = (mismatch, spawnCondition, selectedItem) => {
 
 
 
-export { EVENT_SEARCH_MAX_ITERATIONS, DEFAULT_RUN_MODEL, normalPdf, seedYieldsEvents, searchForEvent, findScoredCandidates, buildCharacterEvents, buildPullEventList }
+export {
+  EVENT_SEARCH_MAX_ITERATIONS,
+  seedYieldsEvents,
+  searchForEvent,
+  findScoredCandidates,
+  buildCharacterEvents,
+  buildPullEventList,
+}

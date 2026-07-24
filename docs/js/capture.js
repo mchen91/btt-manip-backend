@@ -24,17 +24,10 @@ import {
   cameraConstraintsForMode,
   shouldDrawPreview,
 } from "./capture-policy.js";
+import { CHARACTER_NAMES } from "./characters.js";
 
 // Character index order MUST match addCharToSeq()'s indexing in script.js
 // (CSS grid, row-major, skipping the two hidden "random" slots).
-const CHARACTER_NAMES = [
-  "Dr. Mario", "Mario", "Luigi", "Bowser", "Peach", "Yoshi", "DK",
-  "Captain Falcon", "Ganondorf",
-  "Falco", "Fox", "Ness", "Ice Climbers", "Kirby", "Samus", "Zelda",
-  "Link", "Young Link",
-  "Pichu", "Pikachu", "Jigglypuff", "Mewtwo", "Mr. G&W",
-  "Marth", "Roy",
-];
 
 // Special template class for the deselected / empty card. It's taught and
 // matched exactly like a character, but it never gets added to the sequence;
@@ -495,10 +488,18 @@ function updateRunTransition(now) {
     else if (!state.runSeen && now - state.offCssSince > OFFCSS_MS) {
       state.runSeen = true;
       setAutoStatus("run in progress…");
+      if (typeof window.setManipAppPhase === "function") {
+        window.setManipAppPhase("running");
+      }
     }
   } else if (sim >= ONCSS_CONF) {
     state.offCssSince = 0;
-    if (state.runSeen) enterLocating("run finished — recording resumed");
+    if (state.runSeen) {
+      if (typeof window.setManipAppPhase === "function") {
+        window.setManipAppPhase("recording");
+      }
+      enterLocating("run finished — recording resumed");
+    }
   }
 }
 
@@ -636,12 +637,9 @@ function watchAppState() {
     obs.observe(span, { childList: true, characterData: true, subtree: true });
   }
 
-  const resetBtn = document.getElementById("reset-button");
-  if (resetBtn) {
-    resetBtn.addEventListener("click", () => {
-      if (state.autoEntry) enterLocating("reset — recording for a new seed");
-    });
-  }
+  window.addEventListener("manipreset", () => {
+    if (state.autoEntry) enterLocating("reset — recording for a new seed");
+  });
 }
 
 function init() {

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Static site server for docs/ plus a tiny action-stream relay.
 
-Serving docs/ is unchanged from the old inline run.sh server (no-cache static
-files). The relay lets the manip page push its rendered action list to any
+Serves docs/ with revalidation for code and a short-lived cache for stable
+images. The relay lets the manip page push its rendered action list to any
 viewer on the LAN:
 
-  POST /api/actions          body: JSON {"text": str, "ts": int} -- store + fan out
+  POST /api/actions          body: JSON {"text": str, "state": object, "ts": int}
+                             -- store + fan out
   GET  /api/actions/stream   Server-Sent Events; replays latest payload on connect
   GET  /api/actions/latest   JSON of last payload (204 if none yet)
 
@@ -34,7 +35,7 @@ import time
 
 MAX_BODY = 64 * 1024
 
-CONTROL_COMMANDS = {'reset'}
+CONTROL_COMMANDS = {'reset', 'clear', 'undo'}
 
 _lock = threading.Lock()
 _subscribers = {'actions': [], 'control': [], 'run': []}  # channel -> list[queue.Queue]
@@ -57,7 +58,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
     def end_headers(self):
-        self.send_header('Cache-Control', 'no-cache')
+        # Images are content-stable and dominate the request count. Cache them
+        # across page loads; keep HTML/JS uncached so a pull cannot mix versions.
+        if self.path.split('?', 1)[0].startswith('/img/'):
+            self.send_header('Cache-Control', 'public, max-age=604800')
+        else:
+            self.send_header('Cache-Control', 'no-cache')
         super().end_headers()
 
     def do_POST(self):
@@ -90,12 +96,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             target = data.get('target')
             if target is not None and not isinstance(target, dict):
                 raise ValueError('target must be an object')
+            state = data.get('state')
+            if state is not None and not isinstance(state, dict):
+                raise ValueError('state must be an object')
         except (ValueError, KeyError) as e:
             self.send_error(400, str(e))
             return
         payload = json.dumps({
             'text': text,
             'target': target,
+            'state': state,
             'ts': data.get('ts', int(time.time() * 1000)),
         }).encode()
         _publish('actions', payload)

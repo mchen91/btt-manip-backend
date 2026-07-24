@@ -6,7 +6,13 @@
 // Usage: node tools/test_scoring.mjs [TRIALS]   (default 200)
 
 import { rngAdv, rngInt } from '../docs/js/util.js';
-import { findScoredCandidates, normalPdf, DEFAULT_RUN_MODEL } from '../docs/js/event.js';
+import { findScoredCandidates } from '../docs/js/event.js';
+import {
+  CURRENT_PULL_MODEL,
+  integerNormalProbability,
+  pullSearchRanges,
+  scorePullOptions,
+} from '../docs/js/pull-model.js';
 import { manipTimeFrames, buildActionSequence, PORT_ADVANCE_THRESHOLD } from '../docs/js/rolls.js';
 
 const TRIALS = Number(process.argv[2] || 200);
@@ -45,33 +51,32 @@ function swordAt(seed) {
   return rngInt(s, 6) === 5;
 }
 
-// Independent oracle: all sword offsets in [lo, hi] from postBomb, plus p.
-function scanWindow(postBomb, mean, sigma) {
-  const lo = Math.max(0, Math.round(mean - 4 * sigma));
-  const hi = Math.round(mean + 4 * sigma);
-  let s = advance(postBomb, lo);
-  const offsets = [];
-  let p = 0;
-  for (let off = lo; off <= hi; off++) {
-    if (swordAt(s)) {
-      offsets.push(off);
-      p += normalPdf((off - mean) / sigma) / sigma;
+// Independent RNG oracle: all sword offsets in each modeled pull window.
+function scanWindows(postBomb, model) {
+  const offsetsByPull = {};
+  for (const range of pullSearchRanges(model)) {
+    let s = advance(postBomb, range.lo);
+    const offsets = [];
+    for (let off = range.lo; off <= range.hi; off++) {
+      if (swordAt(s)) offsets.push(off);
+      s = rngAdv(s);
     }
-    s = rngAdv(s);
+    offsetsByPull[range.id] = offsets;
   }
-  return { offsets, p };
+  return offsetsByPull;
 }
 
 /* --- findScoredCandidates ------------------------------------------- */
 
-const { mean, sigma } = DEFAULT_RUN_MODEL;
 let totalCandidates = 0;
 let multiSword = 0;
 
 for (let trial = 0; trial < TRIALS; trial++) {
   const start = randomSeed();
   const candidates = findScoredCandidates(start, {
-    mean, sigma, horizon: PORT_ADVANCE_THRESHOLD, maxCandidates: 6,
+    model: CURRENT_PULL_MODEL,
+    horizon: PORT_ADVANCE_THRESHOLD,
+    maxCandidates: 6,
   });
 
   if (candidates.length === 0) {
@@ -92,13 +97,19 @@ for (let trial = 0; trial < TRIALS; trial++) {
     if (pb === null) fail(`trial ${trial}: candidate at ${c.interval} is not a bomb`);
     else if (pb !== c.postBombSeed) fail(`trial ${trial}: postBombSeed mismatch`);
 
-    const oracle = scanWindow(c.postBombSeed, mean, sigma);
-    if (JSON.stringify(oracle.offsets) !== JSON.stringify(c.offsets)) {
-      fail(`trial ${trial}: offsets mismatch ${JSON.stringify(c.offsets)} vs oracle ${JSON.stringify(oracle.offsets)}`);
+    const oracleOffsets = scanWindows(c.postBombSeed, CURRENT_PULL_MODEL);
+    const oracleScore = scorePullOptions(oracleOffsets, CURRENT_PULL_MODEL);
+    for (const pull of c.pulls) {
+      if (JSON.stringify(oracleOffsets[pull.id]) !== JSON.stringify(pull.offsets)) {
+        fail(`trial ${trial}: ${pull.id} offsets mismatch`);
+      }
     }
-    if (Math.abs(oracle.p - c.p) > 1e-12) fail(`trial ${trial}: p mismatch`);
+    if (Math.abs(oracleScore.p - c.p) > 1e-12) fail(`trial ${trial}: p mismatch`);
+    if (oracleScore.recommendedPull !== c.recommendedPull) {
+      fail(`trial ${trial}: recommended pull mismatch`);
+    }
     if (c.offsets.length === 0) fail(`trial ${trial}: candidate with empty offsets returned`);
-    if (c.offsets.length > 1) multiSword++;
+    if (c.pulls.some((pull) => pull.offsets.length > 1)) multiSword++;
   }
 
   // The first candidate must be the FIRST sword-bearing bomb seed: no
@@ -106,9 +117,12 @@ for (let trial = 0; trial < TRIALS; trial++) {
   let s = start;
   for (let i = 0; i < candidates[0].interval; i++) {
     const pb = bombAt(s);
-    if (pb !== null && scanWindow(pb, mean, sigma).offsets.length > 0) {
+    if (pb !== null) {
+      const score = scorePullOptions(scanWindows(pb, CURRENT_PULL_MODEL), CURRENT_PULL_MODEL);
+      if (score.p > 0) {
       fail(`trial ${trial}: earlier qualifying candidate at interval ${i}`);
       break;
+      }
     }
     s = rngAdv(s);
   }
@@ -117,6 +131,35 @@ for (let trial = 0; trial < TRIALS; trial++) {
 console.log(`findScoredCandidates: ${TRIALS} trials, ` +
   `${(totalCandidates / TRIALS).toFixed(2)} candidates/trial, ` +
   `${multiSword} multi-sword windows`);
+
+/* --- pull probability model ----------------------------------------- */
+
+for (const route of CURRENT_PULL_MODEL.routes) {
+  let mass = 0;
+  const lo = Math.floor(route.mean - 8 * route.sigma);
+  const hi = Math.ceil(route.mean + 8 * route.sigma);
+  for (let offset = lo; offset <= hi; offset++) {
+    mass += integerNormalProbability(offset, route);
+  }
+  if (Math.abs(mass - 1) > 1e-5) {
+    fail(`${route.id}: integer-bin probabilities sum to ${mass}, expected 1`);
+  }
+  const center = Math.round(route.mean);
+  const centerP = integerNormalProbability(center, route);
+  const tailP = integerNormalProbability(center + Math.round(2 * route.sigma), route);
+  if (!(centerP > tailP)) fail(`${route.id}: center should score above 2σ tail`);
+}
+
+{
+  const early = CURRENT_PULL_MODEL.routes.find((route) => route.id === 'early');
+  const late = CURRENT_PULL_MODEL.routes.find((route) => route.id === 'late');
+  const score = scorePullOptions({
+    early: [Math.round(early.mean + 2 * early.sigma)],
+    late: [Math.round(late.mean)],
+  });
+  if (score.recommendedPull !== 'late') fail('model should recommend stronger late pull');
+}
+console.log('pull probability model: ok');
 
 /* --- manipTimeFrames -------------------------------------------------- */
 

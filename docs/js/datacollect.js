@@ -82,7 +82,9 @@ const ATTEMPT_TIMEOUT_MS = 30000;
 
 const state = {
   client: null,
-  enabled: store.getItem(STORAGE_KEY_ENABLED) === '1',
+  // Collection is part of the normal run flow now. A missing preference
+  // means on; preserve an explicit opt-out written by the checkbox.
+  enabled: store.getItem(STORAGE_KEY_ENABLED) !== '0',
   port: Number(store.getItem(STORAGE_KEY_PORT) || '1'),
 
   buffer: [], // ring of { frame, seed, actionState, actionFrame }

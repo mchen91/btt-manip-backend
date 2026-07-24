@@ -1,0 +1,41 @@
+{
+  "calibration_seed_hex": "0x115cfd73",
+  "calibration_time_unix": 1735689600,
+  "pre_title_calls": 0,
+  "title_second_offset_mod_60": 4,
+  "character_pool": [
+    0,
+    1,
+    2,
+    4,
+    5,
+    6,
+    8,
+    11
+  ],
+  "stage_pool": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "current_stage_id": 0,
+  "title_to_btt_calls": 0,
+  "stage_load_calls": 12,
+  "calibration_capture": {
+    "boot_host_time": "2026-07-21T03:34:06",
+    "calibration_source": "m-protocol first post-OSGetTick seed on Dolphin 2606-97",
+    "title_host_time": "2026-07-21T03:34:11",
+    "btt_host_time": "2026-07-21T03:34:21",
+    "title_sampled_second": 4,
+    "title_start_seed_hex": "0x115cfd73",
+    "title_final_seed_hex": "0x5a6201d6",
+    "btt_start_seed_hex": "0x5a6201d6",
+    "stage_load_intermediate_after_10_hex": "0x26ceadc8",
+    "stage_load_final_after_12_hex": "0x8ae4ea82"
+  }
+}

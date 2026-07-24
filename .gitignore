@@ -1,4 +1,5 @@
 __pycache__/
+*.py[cod]
 .DS_Store
 .vscode/
 notes.txt
@@ -8,3 +9,10 @@ venv/
 *.so
 temp/
 .claude/
+
+# Reproducible RNG scans and local probe output.
+/results/*
+!/results/README.md
+/tools/results/
+/tools/scan_startup_seeds
+/tools/*.summary.json

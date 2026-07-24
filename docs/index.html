@@ -16,12 +16,12 @@
         <p>Settings:</p>
         <div id="item-selector">
             <label>
-                <input type="radio" name="item" value="beamsword" checked>
+                <input type="radio" name="item" value="beamsword">
                 <img src="img/beamsword.png" title="beamsword">
             </label>
             
             <label>
-                <input type="radio" name="item" value="bomb">
+                <input type="radio" name="item" value="bomb" checked>
                 <img src="img/bobomb.png" title="bomb">
             </label>
 
@@ -129,9 +129,11 @@
                 <div id="css"></div>
             </div>
             <div id="char-seq-display">
-                <button id="clear-button" class="control-button" onclick="clearSeq()">Clear</button>
+                <div id="char-seq-controls">
+                    <button id="clear-button" class="control-button" onclick="clearSeq()">Clear</button>
+                    <button id="undo-button" class="control-button" onclick="undoChar()">Undo</button>
+                </div>
                 <div id="char-seq-container"></div>
-                <button id="undo-button" class="control-button" onclick="undoChar()">Undo</button>
                 <p id="character-count" class="empty-count">0/9</p>
             </div>
             <hr>

@@ -21,6 +21,8 @@ function check(cond, msg) {
   }
 }
 
+check(state.enabled === true, 'data collection defaults on when no preference is stored');
+
 function advance(seed, n) {
   for (let i = 0; i < n; i++) seed = rngAdv(seed);
   return seed;

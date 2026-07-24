@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Peach Pull RNG Probe</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.45 system-ui, sans-serif; }
+    body { margin: 0; background: #11151b; color: #e8edf2; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 6px; font-size: 1.7rem; }
+    .muted { color: #9da9b5; }
+    .controls { display: flex; flex-wrap: wrap; gap: 16px; margin: 22px 0; }
+    label { display: grid; gap: 5px; }
+    input, select, button { font: inherit; color: inherit; background: #202832;
+      border: 1px solid #4b5968; border-radius: 5px; padding: 7px 10px; }
+    input.invalid { border-color: #ff6375; }
+    #status { color: #77d6a0; font-weight: 650; }
+    #result { margin: 18px 0; padding: 14px; background: #202832;
+      border-left: 4px solid #67a9ff; font-size: 1.08rem; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #303b47; }
+    th { color: #aeb9c4; font-size: .82rem; }
+    tr.target-pull { background: #263f32; color: #baf4cf; font-weight: 650; }
+    code { color: #b9d8ff; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Peach Pull RNG Probe</h1>
+  <div class="muted">Passive m-protocol readout. Save-state rewinds automatically start a new attempt.</div>
+
+  <div class="controls">
+    <label>Reference post-Bob-omb seed
+      <input id="base-seed" size="12" spellcheck="false">
+    </label>
+    <label>Peach controller port
+      <select id="port"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+    </label>
+    <label>&nbsp;<button id="clear" type="button">Clear rows</button></label>
+  </div>
+
+  <p>Startup seed: <code>0xD0E3EFAA</code> · Expected sword offsets: <code id="offsets"></code></p>
+  <p id="status">loading…</p>
+  <p id="live" class="muted">Waiting for game data…</p>
+  <div id="result">Waiting for the third pull with six targets remaining…</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Attempt</th><th>Pull</th><th>Targets</th><th>Frame</th>
+        <th>Prior seed</th><th>Prior rolls</th><th>Entry seed</th>
+        <th>Entry rolls</th><th>Calls on entry</th><th>Nearest sword (Δ)</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</main>
+<script src="js/m-protocol.js"></script>
+<script type="module" src="js/pull-probe.js"></script>
+</body>
+</html>

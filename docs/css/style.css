@@ -97,6 +97,11 @@ h3 {
     flex-direction: row;
 }
 
+#char-seq-controls {
+    display: flex;
+    gap: 0.25rem;
+}
+
 #char-seq-container {
     display: flex;
     flex-direction: row;

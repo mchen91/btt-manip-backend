@@ -12,6 +12,44 @@
             padding: 1em;
             box-sizing: border-box;
         }
+        #viewer-state {
+            margin-bottom: 1.25em;
+        }
+        #viewer-status-line {
+            font-size: 1.6em;
+        }
+        #viewer-recording {
+            margin-top: 0.75em;
+        }
+        #viewer-character-line {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75em;
+        }
+        #viewer-characters {
+            display: flex;
+            min-height: 2.5rem;
+            align-items: center;
+        }
+        #viewer-characters .stock-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+        }
+        #viewer-character-count {
+            color: #555;
+        }
+        #viewer-entry-controls {
+            display: flex;
+            gap: 0.35em;
+            margin-top: 0.6em;
+        }
+        #viewer-entry-controls button,
+        #viewer-reset {
+            font-size: 1em;
+            padding: 0.4em 0.9em;
+            cursor: pointer;
+        }
         #viewer-actions {
             font-size: 2em;
             line-height: 1.5;
@@ -20,9 +58,7 @@
         }
         #viewer-reset {
             margin-top: 1.5em;
-            font-size: 1.2em;
-            padding: 0.4em 1.2em;
-            cursor: pointer;
+            background-color: #fa6c6c;
         }
         #viewer-swords {
             margin-top: 1em;
@@ -40,31 +76,78 @@
             font-weight: bold;
             text-align: left;
         }
-        #viewer-run-detail {
-            font-size: 1.2em;
-            text-align: left;
-        }
     </style>
 </head>
 <body>
+    <div id="viewer-state">
+        <div id="viewer-status-line" aria-live="polite">Status: <strong id="viewer-status">Connecting…</strong></div>
+        <div id="viewer-recording" hidden>
+            <div id="viewer-character-line">
+                <div id="viewer-characters"></div>
+                <span id="viewer-character-count"></span>
+            </div>
+            <div id="viewer-entry-controls">
+                <button id="viewer-clear" type="button">Clear</button>
+                <button id="viewer-undo" type="button">Undo</button>
+            </div>
+        </div>
+    </div>
     <div id="viewer-actions"></div>
     <div id="viewer-run"></div>
-    <div id="viewer-run-detail"></div>
     <div id="viewer-swords"></div>
     <button id="viewer-reset" type="button" title="Reset the manip page: clears the current seed, next search starts from scratch">Reset</button>
 
     <script type="module">
         import { rngAdv, rngInt } from './js/util.js';
+        import { CHARACTER_NAMES, STOCK_ICONS } from './js/characters.js';
 
         const actionsEl = document.getElementById('viewer-actions');
         const swordsEl = document.getElementById('viewer-swords');
+        const statusEl = document.getElementById('viewer-status');
+        const recordingEl = document.getElementById('viewer-recording');
+        const charactersEl = document.getElementById('viewer-characters');
+        const characterCountEl = document.getElementById('viewer-character-count');
+        const undoEl = document.getElementById('viewer-undo');
+        const clearEl = document.getElementById('viewer-clear');
 
-        // Sword offsets of the current target, kept for the last-run
-        // readout's nearest-offset comparison.
-        let swordOffsets = [];
+        const PHASE_LABELS = {
+            recording: 'Recording characters',
+            searching: 'Searching for seed',
+            ready: 'Ready for run',
+            running: 'Run in progress',
+        };
+        let previousPhase = null;
 
-        const SWORD_SCAN_MIN = 1500;
-        const SWORD_SCAN_MAX = 2500;
+        function renderState(state) {
+            if (!state || !PHASE_LABELS[state.phase]) return;
+            if (state.phase === 'running' && previousPhase !== 'running') {
+                lastRun = null;
+            }
+            previousPhase = state.phase;
+            statusEl.textContent = PHASE_LABELS[state.phase];
+            const recording = state.phase === 'recording';
+            recordingEl.hidden = !recording;
+            actionsEl.hidden = recording;
+            renderRunForPhase(recording);
+            if (!recording) return;
+
+            const characters = Array.isArray(state.characters) ? state.characters : [];
+            charactersEl.replaceChildren(...characters.map((index) => {
+                const icon = document.createElement('img');
+                icon.className = 'stock-icon';
+                icon.src = STOCK_ICONS[index];
+                icon.alt = CHARACTER_NAMES[index] || `Character ${index}`;
+                icon.title = icon.alt;
+                return icon;
+            }));
+            const quota = Number.isInteger(state.quota) ? state.quota : 0;
+            characterCountEl.textContent = `${characters.length}/${quota}`;
+            undoEl.disabled = characters.length === 0;
+            clearEl.disabled = characters.length === 0;
+        }
+
+        const SWORD_SCAN_MIN = 1800;
+        const SWORD_SCAN_MAX = 2400;
 
         // Every roll distance k in the requested range after the post-bomb seed where a
         // beamsword would pull. A sword pull consumes two rolls from seed s:
@@ -95,7 +178,6 @@
         function renderSwords(target) {
             if (!target || target.item !== 'bomb' || typeof target.postPullSeed !== 'number') {
                 swordsEl.textContent = '';
-                swordOffsets = [];
                 return;
             }
             const offsets = findSwordOffsets(
@@ -103,7 +185,6 @@
                 SWORD_SCAN_MIN,
                 SWORD_SCAN_MAX,
             );
-            swordOffsets = offsets;
             const header = `Sword seeds ${SWORD_SCAN_MIN}-${SWORD_SCAN_MAX} rolls after bomb pull:`;
             const body = offsets.length
                 ? offsets.map((k) => `+${k}`).join('\n')
@@ -117,47 +198,57 @@
             swordsEl.append(h, list);
         }
 
-        document.getElementById('viewer-reset').onclick = () => {
-            if (!confirm('Reset seed on the manip machine and begin new search?')) return;
+        function sendControl(cmd) {
             fetch('/api/control', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cmd: 'reset' }),
+                body: JSON.stringify({ cmd }),
             });
-        };
+        }
+
+        document.getElementById('viewer-reset').onclick = () => sendControl('reset');
+        clearEl.onclick = () => sendControl('clear');
+        undoEl.onclick = () => sendControl('undo');
 
         // EventSource auto-reconnects on drop, so a server restart or wifi
         // blip recovers without a page reload.
         const source = new EventSource('/api/actions/stream');
+        let hasState = false;
 
         source.onmessage = (e) => {
             const data = JSON.parse(e.data);
             actionsEl.textContent = data.text;
             renderSwords(data.target);
+            renderState(data.state);
+            hasState = Boolean(data.state);
+        };
+        source.onopen = () => {
+            if (!hasState) statusEl.textContent = 'Waiting for manip page';
+        };
+        source.onerror = () => {
+            statusEl.textContent = 'Connection lost — reconnecting';
         };
 
         const runEl = document.getElementById('viewer-run');
-        const runDetailEl = document.getElementById('viewer-run-detail');
+        let lastRun = null;
+        let recordingPhase = false;
 
         // Last completed run's consumption measurement (fed by
         // docs/js/datacollect.js at pull #3). Post-run readout only; silent
         // when that stream never sends.
+        function renderRunForPhase(recording) {
+            recordingPhase = recording;
+            if (!recording || !lastRun) {
+                runEl.textContent = '';
+                return;
+            }
+            runEl.textContent = `Last run: ${lastRun.c}`;
+        }
+
         function renderRun(data) {
             if (typeof data.c !== 'number') return;
-            let delta = '';
-            if (swordOffsets.length) {
-                const nearest = swordOffsets.reduce(
-                    (m, o) => (Math.abs(o - data.c) < Math.abs(m - data.c) ? o : m),
-                    swordOffsets[0]);
-                const d = data.c - nearest;
-                delta = ` · Δ ${d > 0 ? '+' : ''}${d} vs sword +${nearest}`;
-            }
-            runEl.textContent =
-                `last run: C=${data.c} · est. ${data.out || '?'}${delta}`;
-            runDetailEl.textContent = typeof data.mean === 'number'
-                ? `n=${data.n} · mean ${data.mean.toFixed(1)}`
-                    + (typeof data.sigma === 'number' ? ` · σ ${data.sigma.toFixed(1)}` : '')
-                : '';
+            lastRun = data;
+            renderRunForPhase(recordingPhase);
         }
 
         const runSource = new EventSource('/api/run/stream');

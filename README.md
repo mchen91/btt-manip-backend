@@ -1,12 +1,18 @@
 # Peach BTT RNG Manip
-Web tool for Melee RNG manipulation in Peach's break the targets.  Use the CSS to locate your seed then perform the specified actions to manip.
 
-This project is heavily inspired by and based on the previous manip work done by Savestate https://github.com/Savestate2A03/ssbm_rng_manip/. Huge thanks to Savestate and their contributions.
+A browser-based tool for Melee RNG manipulation in Peach's Break the Targets.
+Use the character-select screen to locate the current seed, then follow the
+generated in-game actions to reach the desired item pull.
 
-# Usage
-Every manip consists of two parts:
-* Locating the Seed by rolling random characters
-* Performing the Manip via in-game actions
+This project builds on
+[Savestate's SSBM RNG manipulation work](https://github.com/Savestate2A03/ssbm_rng_manip/).
+
+## Usage
+
+Every manipulation has two parts:
+
+- Locate the seed by rolling random characters.
+- Perform the generated in-game actions.
 
 To Manip for a pull:
 
@@ -39,7 +45,7 @@ For a good (very long) example of what it looks like to manip, see [this video](
 
 ***Note*: It's possible for your game's seed and the application's internal seed to become desynced for a number of reasons. If you feel this may have happened or keep missing pulls, you can always click the "reset" button to re-locate the seed with a new 9-character sequence
 
-# Run data collection (m-protocol) + scored sword targeting
+## Run data collection and scored sword targeting
 
 The **targetprey** item mode targets a bomb pull now *and* a beam-sword pull a
 run's-worth of RNG consumption later. Searches enumerate nearby candidate
@@ -57,10 +63,10 @@ model for future searches and never assists the run in progress. See
 [`PLAN_MPROTOCOL.md`](PLAN_MPROTOCOL.md) for the design and
 [`WINDOWS_AGENT.md`](WINDOWS_AGENT.md) for setting up the daemon machine.
 
-# Running Locally
+## Running locally
 This is a fully static site — all seed location runs client-side in the browser (a
 direct CVP / Hidden-Number-Problem reconstruction; see [`RSS_IMPLEMENTATION.md`](RSS_IMPLEMENTATION.md)).
-There is no server and no Python runtime dependency.
+The published app has no server or Python runtime dependency.
 
 The published site lives in [`docs/`](docs/). To preview it locally:
 
@@ -70,13 +76,20 @@ The published site lives in [`docs/`](docs/). To preview it locally:
 python3 -m http.server 8000 --directory docs
 ```
 
-# Deploying
+## Repository layout
+
+- `docs/` — the static browser app published by GitHub Pages.
+- `data/` — measured inputs and checked-in calibration data.
+- `tools/` — offline analysis, capture, generation, and validation utilities.
+- `results/` — ignored, reproducible outputs from scans and analysis.
+
+## Deploying
 Enable **GitHub Pages** for this repository with the source set to the `/docs` folder on
 the default branch. Asset paths are relative, so the site works correctly under the
 `https://<user>.github.io/<repo>/` subpath. (`docs/.nojekyll` disables Jekyll so files
 are served verbatim.)
 
-# Validation tooling
+## Validation
 The C++ implementation (`rng.cpp`) is retained only as an independent brute-force oracle
 to cross-check the client-side algorithm. The validation suite (pure-Python RSS, the JS
 differential test, and the optional C++ oracle comparison) lives in [`tools/`](tools/):
